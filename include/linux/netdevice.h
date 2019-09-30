@@ -983,9 +983,13 @@ struct netdev_net_notifier {
 
 struct netdev_name_node {
 	struct hlist_node hlist;
+	struct list_head list;
 	struct net_device *dev;
 	const char *name;
 };
+
+int netdev_name_node_alt_create(struct net_device *dev, const char *name);
+int netdev_name_node_alt_destroy(struct net_device *dev, const char *name);
 
 /*
  * This structure defines the management hooks for network devices.
