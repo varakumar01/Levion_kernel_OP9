@@ -239,6 +239,8 @@ static int tcp_v6_connect(struct sock *sk, struct sockaddr *uaddr,
 		/* Paired with READ_ONCE() in tcp_(get|set)sockopt() */
 		WRITE_ONCE(icsk->icsk_af_ops, &ipv6_mapped);
 		sk->sk_backlog_rcv = tcp_v4_do_rcv;
+		if (sk_is_mptcp(sk))
+			mptcp_handle_ipv6_mapped(sk, true);
 #ifdef CONFIG_TCP_MD5SIG
 		tp->af_specific = &tcp_sock_ipv6_mapped_specific;
 #endif
@@ -247,9 +249,12 @@ static int tcp_v6_connect(struct sock *sk, struct sockaddr *uaddr,
 
 		if (err) {
 			icsk->icsk_ext_hdr_len = exthdrlen;
+
 			/* Paired with READ_ONCE() in tcp_(get|set)sockopt() */
 			WRITE_ONCE(icsk->icsk_af_ops, &ipv6_specific);
 			sk->sk_backlog_rcv = tcp_v6_do_rcv;
+			if (sk_is_mptcp(sk))
+				mptcp_handle_ipv6_mapped(sk, false);
 #ifdef CONFIG_TCP_MD5SIG
 			tp->af_specific = &tcp_sock_ipv6_specific;
 #endif
@@ -1178,6 +1183,8 @@ static struct sock *tcp_v6_syn_recv_sock(const struct sock *sk, struct sk_buff *
 		newnp->saddr = newsk->sk_v6_rcv_saddr;
 
 		inet_csk(newsk)->icsk_af_ops = &ipv6_mapped;
+		if (sk_is_mptcp(newsk))
+			mptcp_handle_ipv6_mapped(newsk, true);
 		newsk->sk_backlog_rcv = tcp_v4_do_rcv;
 #ifdef CONFIG_TCP_MD5SIG
 		newtp->af_specific = &tcp_sock_ipv6_mapped_specific;
