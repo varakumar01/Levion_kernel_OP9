@@ -419,8 +419,13 @@ struct tcp_sock {
 	u32	mtu_info; /* We received an ICMP_FRAG_NEEDED / ICMPV6_PKT_TOOBIG
 			   * while socket was owned by user.
 			   */
+
 #if IS_ENABLED(CONFIG_SMC)
 	bool	syn_smc;	/* SYN includes SMC */
+#endif
+
+#if IS_ENABLED(CONFIG_MPTCP)
+	bool	is_mptcp;
 #endif
 
 #ifdef CONFIG_TCP_MD5SIG
