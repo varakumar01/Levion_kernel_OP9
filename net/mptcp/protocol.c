@@ -677,6 +677,11 @@ static void mptcp_worker(struct work_struct *work)
 	sock_put(sk);
 }
 
+static unsigned int mptcp_sync_mss(struct sock *sk, u32 pmtu)
+{
+	return 0;
+}
+
 static int __mptcp_init_sock(struct sock *sk)
 {
 	struct mptcp_sock *msk = mptcp_sk(sk);
@@ -686,6 +691,7 @@ static int __mptcp_init_sock(struct sock *sk)
 	INIT_WORK(&msk->work, mptcp_worker);
 
 	msk->first = NULL;
+	inet_csk(sk)->icsk_sync_mss = mptcp_sync_mss;
 
 	return 0;
 }
