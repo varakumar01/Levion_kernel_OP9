@@ -533,5 +533,6 @@ int tcp_skb_shift(struct sk_buff *to, struct sk_buff *from, int pcount,
 
 int tcp_sock_set_keepidle_locked(struct sock *sk, int val);
 int tcp_sock_set_keepidle(struct sock *sk, int val);
+void tcp_sock_set_cork(struct sock *sk, bool on);
 
 #endif	/* _LINUX_TCP_H */
