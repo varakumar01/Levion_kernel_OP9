@@ -514,7 +514,7 @@ static void tcp_grow_window(struct sock *sk, const struct sk_buff *skb)
 /* 3. Try to fixup all. It is made immediately after connection enters
  *    established state.
  */
-void tcp_init_buffer_space(struct sock *sk)
+static void tcp_init_buffer_space(struct sock *sk)
 {
 	int tcp_app_win = READ_ONCE(sock_net(sk)->ipv4.sysctl_tcp_app_win);
 	struct tcp_sock *tp = tcp_sk(sk);
