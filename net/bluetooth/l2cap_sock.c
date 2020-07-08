@@ -287,7 +287,7 @@ static int l2cap_sock_listen(struct socket *sock, int backlog)
 	case L2CAP_MODE_STREAMING:
 		if (!disable_ertm)
 			break;
-		/* fall through */
+		fallthrough;
 	default:
 		err = -EOPNOTSUPP;
 		goto done;
@@ -710,7 +710,7 @@ static int l2cap_sock_setsockopt_old(struct socket *sock, int optname,
 		case L2CAP_MODE_STREAMING:
 			if (!disable_ertm)
 				break;
-			/* fall through */
+			fallthrough;
 		default:
 			err = -EINVAL;
 			break;
