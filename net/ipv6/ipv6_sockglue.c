@@ -759,7 +759,6 @@ done:
 		}
 		retv = ip6_mc_source(add, omode, sk, &greqs);
 		break;
-	}
 	case MCAST_MSFILTER:
 	{
 		struct group_filter *gsf;

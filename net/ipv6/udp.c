@@ -1590,17 +1590,6 @@ int udpv6_setsockopt(struct sock *sk, int level, int optname,
 	return ipv6_setsockopt(sk, level, optname, optval, optlen);
 }
 
-#ifdef CONFIG_COMPAT
-int compat_udpv6_setsockopt(struct sock *sk, int level, int optname,
-			    char __user *optval, unsigned int optlen)
-{
-	if (level == SOL_UDP  ||  level == SOL_UDPLITE)
-		return udp_lib_setsockopt(sk, level, optname, USER_SOCKPTR(optval), optlen,
-					  udp_v6_push_pending_frames);
-	return compat_ipv6_setsockopt(sk, level, optname, optval, optlen);
-}
-#endif
-
 int udpv6_getsockopt(struct sock *sk, int level, int optname,
 		     char __user *optval, int __user *optlen)
 {
@@ -1608,16 +1597,6 @@ int udpv6_getsockopt(struct sock *sk, int level, int optname,
 		return udp_lib_getsockopt(sk, level, optname, optval, optlen);
 	return ipv6_getsockopt(sk, level, optname, optval, optlen);
 }
-
-#ifdef CONFIG_COMPAT
-int compat_udpv6_getsockopt(struct sock *sk, int level, int optname,
-			    char __user *optval, int __user *optlen)
-{
-	if (level == SOL_UDP  ||  level == SOL_UDPLITE)
-		return udp_lib_getsockopt(sk, level, optname, optval, optlen);
-	return compat_ipv6_getsockopt(sk, level, optname, optval, optlen);
-}
-#endif
 
 static const struct inet6_protocol udpv6_protocol = {
 	.handler	=	udpv6_rcv,
@@ -1696,10 +1675,6 @@ struct proto udpv6_prot = {
 	.sysctl_rmem_offset     = offsetof(struct net, ipv4.sysctl_udp_rmem_min),
 	.obj_size		= sizeof(struct udp6_sock),
 	.h.udp_table		= &udp_table,
-#ifdef CONFIG_COMPAT
-	.compat_setsockopt	= compat_udpv6_setsockopt,
-	.compat_getsockopt	= compat_udpv6_getsockopt,
-#endif
 	.diag_destroy		= udp_abort,
 };
 
