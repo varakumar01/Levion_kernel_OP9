@@ -817,6 +817,8 @@ enum mac80211_tx_info_flags {
  * @IEEE80211_TX_CTRL_FAST_XMIT: This frame is going through the fast_xmit path
  * @IEEE80211_TX_CTRL_SKIP_MPATH_LOOKUP: This frame skips mesh path lookup
  *
+ * @IEEE80211_TX_CTRL_NO_SEQNO: Do not overwrite the sequence number that
+ *	has already been assigned to this frame.
  * These flags are used in tx_info->control.flags.
  */
 enum mac80211_tx_control_flags {
@@ -827,6 +829,7 @@ enum mac80211_tx_control_flags {
 	IEEE80211_TX_CTRL_FAST_XMIT		= BIT(4),
 	IEEE80211_TX_CTRL_SKIP_MPATH_LOOKUP	= BIT(5),
 	IEEE80211_TX_CTRL_HW_80211_ENCAP	= BIT(6),
+	IEEE80211_TX_CTRL_NO_SEQNO		= BIT(7),
 };
 
 /*
