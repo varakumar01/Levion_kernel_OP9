@@ -840,7 +840,8 @@ done:
 		retv = -EPERM;
 		if (!ns_capable(net->user_ns, CAP_NET_ADMIN))
 			break;
-		retv = xfrm_user_policy(sk, optname, optval, optlen);
+		retv = xfrm_user_policy(sk, optname, USER_SOCKPTR(optval),
+					optlen);
 		break;
 
 	case IPV6_ADDR_PREFERENCES:
