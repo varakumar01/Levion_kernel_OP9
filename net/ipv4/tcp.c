@@ -3253,7 +3253,7 @@ static int do_tcp_setsockopt(struct sock *sk, int level,
 	return err;
 }
 
-int tcp_setsockopt(struct sock *sk, int level, int optname, char __user *optval,
+int tcp_setsockopt(struct sock *sk, int level, int optname, sockptr_t optval,
 		   unsigned int optlen)
 {
 	const struct inet_connection_sock *icsk = inet_csk(sk);

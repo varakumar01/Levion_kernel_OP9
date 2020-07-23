@@ -653,7 +653,7 @@ static bool l2cap_valid_mtu(struct l2cap_chan *chan, u16 mtu)
 }
 
 static int l2cap_sock_setsockopt_old(struct socket *sock, int optname,
-				     char __user *optval, unsigned int optlen)
+				     sockptr_t optval, unsigned int optlen)
 {
 	struct sock *sk = sock->sk;
 	struct l2cap_chan *chan = l2cap_pi(sk)->chan;
@@ -686,7 +686,7 @@ static int l2cap_sock_setsockopt_old(struct socket *sock, int optname,
 		opts.txwin_size = chan->tx_win;
 
 		len = min_t(unsigned int, sizeof(opts), optlen);
-		if (copy_from_user((char *) &opts, optval, len)) {
+		if (copy_from_sockptr(&opts, optval, len)) {
 			err = -EFAULT;
 			break;
 		}
@@ -729,7 +729,7 @@ static int l2cap_sock_setsockopt_old(struct socket *sock, int optname,
 		break;
 
 	case L2CAP_LM:
-		if (get_user(opt, (u32 __user *) optval)) {
+		if (copy_from_sockptr(&opt, optval, sizeof(u32))) {
 			err = -EFAULT;
 			break;
 		}
@@ -767,7 +767,7 @@ static int l2cap_sock_setsockopt_old(struct socket *sock, int optname,
 }
 
 static int l2cap_sock_setsockopt(struct socket *sock, int level, int optname,
-				 char __user *optval, unsigned int optlen)
+				 sockptr_t optval, unsigned int optlen)
 {
 	struct sock *sk = sock->sk;
 	struct l2cap_chan *chan = l2cap_pi(sk)->chan;
@@ -799,7 +799,7 @@ static int l2cap_sock_setsockopt(struct socket *sock, int level, int optname,
 		sec.level = BT_SECURITY_LOW;
 
 		len = min_t(unsigned int, sizeof(sec), optlen);
-		if (copy_from_user((char *) &sec, optval, len)) {
+		if (copy_from_sockptr(&sec, optval, len)) {
 			err = -EFAULT;
 			break;
 		}
@@ -847,7 +847,7 @@ static int l2cap_sock_setsockopt(struct socket *sock, int level, int optname,
 			break;
 		}
 
-		if (get_user(opt, (u32 __user *) optval)) {
+		if (copy_from_sockptr(&opt, optval, sizeof(u32))) {
 			err = -EFAULT;
 			break;
 		}
@@ -862,7 +862,7 @@ static int l2cap_sock_setsockopt(struct socket *sock, int level, int optname,
 		break;
 
 	case BT_FLUSHABLE:
-		if (get_user(opt, (u32 __user *) optval)) {
+		if (copy_from_sockptr(&opt, optval, sizeof(u32))) {
 			err = -EFAULT;
 			break;
 		}
@@ -898,7 +898,7 @@ static int l2cap_sock_setsockopt(struct socket *sock, int level, int optname,
 		pwr.force_active = BT_POWER_FORCE_ACTIVE_ON;
 
 		len = min_t(unsigned int, sizeof(pwr), optlen);
-		if (copy_from_user((char *) &pwr, optval, len)) {
+		if (copy_from_sockptr(&pwr, optval, len)) {
 			err = -EFAULT;
 			break;
 		}
@@ -910,7 +910,7 @@ static int l2cap_sock_setsockopt(struct socket *sock, int level, int optname,
 		break;
 
 	case BT_CHANNEL_POLICY:
-		if (get_user(opt, (u32 __user *) optval)) {
+		if (copy_from_sockptr(&opt, optval, sizeof(u32))) {
 			err = -EFAULT;
 			break;
 		}
@@ -957,7 +957,7 @@ static int l2cap_sock_setsockopt(struct socket *sock, int level, int optname,
 			break;
 		}
 
-		if (get_user(opt, (u16 __user *) optval)) {
+		if (copy_from_sockptr(&opt, optval, sizeof(u16))) {
 			err = -EFAULT;
 			break;
 		}

@@ -412,7 +412,7 @@ out:
 EXPORT_SYMBOL_GPL(dccp_ioctl);
 
 static int dccp_setsockopt_service(struct sock *sk, const __be32 service,
-				   char __user *optval, unsigned int optlen)
+				   sockptr_t optval, unsigned int optlen)
 {
 	struct dccp_sock *dp = dccp_sk(sk);
 	struct dccp_service_list *sl = NULL;
@@ -427,9 +427,9 @@ static int dccp_setsockopt_service(struct sock *sk, const __be32 service,
 			return -ENOMEM;
 
 		sl->dccpsl_nr = optlen / sizeof(u32) - 1;
-		if (copy_from_user(sl->dccpsl_list,
-				   optval + sizeof(service),
-				   optlen - sizeof(service)) ||
+		sockptr_advance(optval, sizeof(service));
+		if (copy_from_sockptr(sl->dccpsl_list, optval,
+				      optlen - sizeof(service)) ||
 		    dccp_list_has_service(sl, DCCP_SERVICE_INVALID_VALUE)) {
 			kfree(sl);
 			return -EFAULT;
@@ -483,7 +483,7 @@ static int dccp_setsockopt_cscov(struct sock *sk, int cscov, bool rx)
 }
 
 static int dccp_setsockopt_ccid(struct sock *sk, int type,
-				char __user *optval, unsigned int optlen)
+				sockptr_t optval, unsigned int optlen)
 {
 	u8 *val;
 	int rc = 0;
@@ -491,7 +491,7 @@ static int dccp_setsockopt_ccid(struct sock *sk, int type,
 	if (optlen < 1 || optlen > DCCP_FEAT_MAX_SP_VALS)
 		return -EINVAL;
 
-	val = memdup_user(optval, optlen);
+	val = memdup_sockptr(optval, optlen);
 	if (IS_ERR(val))
 		return PTR_ERR(val);
 
@@ -508,7 +508,7 @@ static int dccp_setsockopt_ccid(struct sock *sk, int type,
 }
 
 static int do_dccp_setsockopt(struct sock *sk, int level, int optname,
-		char __user *optval, unsigned int optlen)
+		sockptr_t optval, unsigned int optlen)
 {
 	struct dccp_sock *dp = dccp_sk(sk);
 	int val, err = 0;
@@ -530,7 +530,7 @@ static int do_dccp_setsockopt(struct sock *sk, int level, int optname,
 	if (optlen < (int)sizeof(int))
 		return -EINVAL;
 
-	if (get_user(val, (int __user *)optval))
+	if (copy_from_sockptr(&val, optval, sizeof(int)))
 		return -EFAULT;
 
 	if (optname == DCCP_SOCKOPT_SERVICE)
@@ -573,8 +573,8 @@ static int do_dccp_setsockopt(struct sock *sk, int level, int optname,
 	return err;
 }
 
-int dccp_setsockopt(struct sock *sk, int level, int optname,
-		    char __user *optval, unsigned int optlen)
+int dccp_setsockopt(struct sock *sk, int level, int optname, sockptr_t optval,
+		    unsigned int optlen)
 {
 	if (level != SOL_DCCP)
 		return inet_csk(sk)->icsk_af_ops->setsockopt(sk, level,

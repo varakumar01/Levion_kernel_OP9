@@ -4659,7 +4659,7 @@ out:
  *   optlen  - the size of the buffer.
  */
 static int sctp_setsockopt(struct sock *sk, int level, int optname,
-			   char __user *optval, unsigned int optlen)
+			   sockptr_t optval, unsigned int optlen)
 {
 	int retval = 0;
 
