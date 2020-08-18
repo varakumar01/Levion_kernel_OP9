@@ -652,10 +652,8 @@ const struct nla_policy nl80211_policy[NUM_NL80211_ATTR] = {
 	[NL80211_ATTR_CONTROL_PORT_NO_PREAUTH] = { .type = NLA_FLAG },
 	[NL80211_ATTR_PMK_LIFETIME] = NLA_POLICY_MIN(NLA_U32, 1),
 	[NL80211_ATTR_PMK_REAUTH_THRESHOLD] = NLA_POLICY_RANGE(NLA_U8, 1, 100),
-	[NL80211_ATTR_HE_6GHZ_CAPABILITY] = {
-		.type = NLA_EXACT_LEN,
-		.len = sizeof(struct ieee80211_he_6ghz_capa),
-	},
+	[NL80211_ATTR_HE_6GHZ_CAPABILITY] =
+		NLA_POLICY_EXACT_LEN(sizeof(struct ieee80211_he_6ghz_capa)),
 };
 
 /* policy for the key attributes */
