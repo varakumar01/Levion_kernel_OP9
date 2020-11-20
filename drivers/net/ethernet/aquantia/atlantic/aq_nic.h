@@ -9,6 +9,8 @@
 #ifndef AQ_NIC_H
 #define AQ_NIC_H
 
+#include <linux/ethtool.h>
+
 #include "aq_common.h"
 #include "aq_rss.h"
 #include "aq_hw.h"
