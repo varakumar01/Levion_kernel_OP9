@@ -280,6 +280,7 @@ struct mptcp_sock {
 	} rcvq_space;
 
 	u32 setsockopt_seq;
+	char		ca_name[TCP_CA_NAME_MAX];
 };
 
 #define mptcp_data_lock(sk) spin_lock_bh(&(sk)->sk_lock.slock)
