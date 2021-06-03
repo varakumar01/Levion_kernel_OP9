@@ -1881,8 +1881,8 @@ out:
 }
 #endif
 
-static void tcp_update_recv_tstamps(struct sk_buff *skb,
-				    struct scm_timestamping_internal *tss)
+void tcp_update_recv_tstamps(struct sk_buff *skb,
+			     struct scm_timestamping_internal *tss)
 {
 	if (skb->tstamp)
 		tss->ts[0] = ktime_to_timespec64(skb->tstamp);
@@ -1896,8 +1896,8 @@ static void tcp_update_recv_tstamps(struct sk_buff *skb,
 }
 
 /* Similar to __sock_recv_timestamp, but does not require an skb */
-static void tcp_recv_timestamp(struct msghdr *msg, const struct sock *sk,
-			       struct scm_timestamping_internal *tss)
+void tcp_recv_timestamp(struct msghdr *msg, const struct sock *sk,
+			struct scm_timestamping_internal *tss)
 {
 	int new_tstamp = sock_flag(sk, SOCK_TSTAMP_NEW);
 	bool has_timestamping = false;
