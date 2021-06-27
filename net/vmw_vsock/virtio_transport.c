@@ -380,7 +380,7 @@ static void virtio_vsock_reset_sock(struct sock *sk)
 
 	sk->sk_state = TCP_CLOSE;
 	sk->sk_err = ECONNRESET;
-	sk->sk_error_report(sk);
+	sk_error_report(sk);
 }
 
 static void virtio_vsock_update_guest_cid(struct virtio_vsock *vsock)
