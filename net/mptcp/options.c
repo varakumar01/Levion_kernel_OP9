@@ -974,9 +974,11 @@ static void ack_update_msk(struct mptcp_sock *msk,
 	old_snd_una = msk->snd_una;
 	new_snd_una = expand_ack(old_snd_una, mp_opt->data_ack, mp_opt->ack64);
 
-	/* ACK for data not even sent yet? Ignore. */
-	if (after64(new_snd_una, snd_nxt))
-		new_snd_una = old_snd_una;
+	/* ACK for data not even sent yet and even above recovery bound? Ignore.*/
+	if (unlikely(after64(new_snd_una, snd_nxt))) {
+		if (!msk->recovery || after64(new_snd_una, msk->recovery_snd_nxt))
+			new_snd_una = old_snd_una;
+	}
 
 	new_wnd_end = new_snd_una + tcp_sk(ssk)->snd_wnd;
 
