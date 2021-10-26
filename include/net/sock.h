@@ -1208,6 +1208,8 @@ struct proto {
 	unsigned int		inuse_idx;
 #endif
 
+	int			(*forward_alloc_get)(const struct sock *sk);
+
 	bool			(*stream_memory_free)(const struct sock *sk, int wake);
 	bool			(*stream_memory_read)(const struct sock *sk);
 	/* Memory pressure */
@@ -1215,6 +1217,7 @@ struct proto {
 	void			(*leave_memory_pressure)(struct sock *sk);
 	atomic_long_t		*memory_allocated;	/* Current allocated memory. */
 	struct percpu_counter	*sockets_allocated;	/* Current number of sockets. */
+
 	/*
 	 * Pressure flag: try to collapse.
 	 * Technical note: it is used by multiple contexts non atomically.
@@ -1290,6 +1293,14 @@ static inline void sk_refcnt_debug_release(const struct sock *sk)
 #define sk_refcnt_debug_dec(sk) do { } while (0)
 #define sk_refcnt_debug_release(sk) do { } while (0)
 #endif /* SOCK_REFCNT_DEBUG */
+
+static inline int sk_forward_alloc_get(const struct sock *sk)
+{
+	if (!sk->sk_prot->forward_alloc_get)
+		return sk->sk_forward_alloc;
+
+	return sk->sk_prot->forward_alloc_get(sk);
+}
 
 static inline bool __sk_stream_memory_free(const struct sock *sk, int wake)
 {
