@@ -1208,7 +1208,9 @@ struct proto {
 	unsigned int		inuse_idx;
 #endif
 
+#if IS_ENABLED(CONFIG_MPTCP)
 	int			(*forward_alloc_get)(const struct sock *sk);
+#endif
 
 	bool			(*stream_memory_free)(const struct sock *sk, int wake);
 	bool			(*stream_memory_read)(const struct sock *sk);
@@ -1296,10 +1298,11 @@ static inline void sk_refcnt_debug_release(const struct sock *sk)
 
 static inline int sk_forward_alloc_get(const struct sock *sk)
 {
-	if (!sk->sk_prot->forward_alloc_get)
-		return sk->sk_forward_alloc;
-
-	return sk->sk_prot->forward_alloc_get(sk);
+#if IS_ENABLED(CONFIG_MPTCP)
+	if (sk->sk_prot->forward_alloc_get)
+		return sk->sk_prot->forward_alloc_get(sk);
+#endif
+	return sk->sk_forward_alloc;
 }
 
 static inline bool __sk_stream_memory_free(const struct sock *sk, int wake)
