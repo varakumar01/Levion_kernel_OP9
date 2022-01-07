@@ -375,7 +375,7 @@ void mptcp_pm_subflow_chk_stale(const struct mptcp_sock *msk, struct sock *ssk)
 	}
 }
 
-void mptcp_pm_data_init(struct mptcp_sock *msk)
+void mptcp_pm_data_reset(struct mptcp_sock *msk)
 {
 	msk->pm.add_addr_signaled = 0;
 	msk->pm.add_addr_accepted = 0;
@@ -391,10 +391,14 @@ void mptcp_pm_data_init(struct mptcp_sock *msk)
 	msk->pm.status = 0;
 	bitmap_fill(msk->pm.id_avail_bitmap, MPTCP_PM_MAX_ADDR_ID + 1);
 
+	mptcp_pm_nl_data_init(msk);
+}
+
+void mptcp_pm_data_init(struct mptcp_sock *msk)
+{
 	spin_lock_init(&msk->pm.lock);
 	INIT_LIST_HEAD(&msk->pm.anno_list);
-
-	mptcp_pm_nl_data_init(msk);
+	mptcp_pm_data_reset(msk);
 }
 
 void __init mptcp_pm_init(void)
