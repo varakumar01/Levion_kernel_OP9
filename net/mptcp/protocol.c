@@ -2779,7 +2779,7 @@ static void __mptcp_destroy_sock(struct sock *sk)
 	spin_unlock_bh(&msk->join_list_lock);
 	list_splice_init(&msk->conn_list, &conn_list);
 
-	sk_stop_timer(sk, &msk->sk.icsk_retransmit_timer);
+	mptcp_stop_timer(sk);
 	sk_stop_timer(sk, &sk->sk_timer);
 	msk->pm.status = 0;
 
@@ -2889,7 +2889,7 @@ static int mptcp_disconnect(struct sock *sk, int flags)
 		__mptcp_close_ssk(sk, ssk, subflow, MPTCP_CF_FASTCLOSE);
 	}
 
-	sk_stop_timer(sk, &msk->sk.icsk_retransmit_timer);
+	mptcp_stop_timer(sk);
 	sk_stop_timer(sk, &sk->sk_timer);
 
 	if (mptcp_sk(sk)->token)
