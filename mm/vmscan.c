@@ -2740,7 +2740,7 @@ static int get_nr_gens(struct lruvec *lruvec, int type)
 
 static bool __maybe_unused seq_is_valid(struct lruvec *lruvec)
 {
-	/* see the comment on lru_gen_struct */
+	/* see the comment on lru_gen_page */
 	return get_nr_gens(lruvec, LRU_GEN_FILE) >= MIN_NR_GENS &&
 	       get_nr_gens(lruvec, LRU_GEN_FILE) <= get_nr_gens(lruvec, LRU_GEN_ANON) &&
 	       get_nr_gens(lruvec, LRU_GEN_ANON) <= MAX_NR_GENS;
@@ -3129,7 +3129,7 @@ struct ctrl_pos {
 static void read_ctrl_pos(struct lruvec *lruvec, int type, int tier, int gain,
 			  struct ctrl_pos *pos)
 {
-	struct lru_gen_struct *lrugen = &lruvec->lrugen;
+	struct lru_gen_page *lrugen = &lruvec->lrugen;
 	int hist = lru_hist_from_seq(lrugen->min_seq[type]);
 
 	pos->refaulted = lrugen->avg_refaulted[type][tier] +
@@ -3144,7 +3144,7 @@ static void read_ctrl_pos(struct lruvec *lruvec, int type, int tier, int gain,
 static void reset_ctrl_pos(struct lruvec *lruvec, int type, bool carryover)
 {
 	int hist, tier;
-	struct lru_gen_struct *lrugen = &lruvec->lrugen;
+	struct lru_gen_page *lrugen = &lruvec->lrugen;
 	bool clear = carryover ? NR_HIST_GENS == 1 : NR_HIST_GENS > 1;
 	unsigned long seq = carryover ? lrugen->min_seq[type] : lrugen->max_seq + 1;
 
@@ -3223,7 +3223,7 @@ static int page_update_gen(struct page *page, int gen)
 static int page_inc_gen(struct lruvec *lruvec, struct page *page, bool reclaiming)
 {
 	int type = page_is_file_cache(page);
-	struct lru_gen_struct *lrugen = &lruvec->lrugen;
+	struct lru_gen_page *lrugen = &lruvec->lrugen;
 	int new_gen, old_gen = lru_gen_from_seq(lrugen->min_seq[type]);
 	unsigned long new_flags, old_flags;
 
@@ -3270,7 +3270,7 @@ static void update_batch_size(struct lru_gen_mm_walk *walk, struct page *page,
 static void reset_batch_size(struct lruvec *lruvec, struct lru_gen_mm_walk *walk)
 {
 	int gen, type, zone;
-	struct lru_gen_struct *lrugen = &lruvec->lrugen;
+	struct lru_gen_page *lrugen = &lruvec->lrugen;
 
 	walk->batched = 0;
 
@@ -3798,7 +3798,7 @@ static bool inc_min_seq(struct lruvec *lruvec, int type, bool can_swap)
 {
 	int zone;
 	int remaining = MAX_LRU_BATCH;
-	struct lru_gen_struct *lrugen = &lruvec->lrugen;
+	struct lru_gen_page *lrugen = &lruvec->lrugen;
 	int new_gen, old_gen = lru_gen_from_seq(lrugen->min_seq[type]);
 
 	if (type == LRU_GEN_ANON && !can_swap)
@@ -3835,7 +3835,7 @@ static bool try_to_inc_min_seq(struct lruvec *lruvec, bool can_swap)
 	int gen, type, zone;
 	bool success = false;
 	bool seq_inc_flag = false;
-	struct lru_gen_struct *lrugen = &lruvec->lrugen;
+	struct lru_gen_page *lrugen = &lruvec->lrugen;
 	DEFINE_MIN_SEQ(lruvec);
 
 	VM_WARN_ON_ONCE(!seq_is_valid(lruvec));
@@ -3865,7 +3865,7 @@ next:
 	if (!seq_inc_flag)
 		return success;
 
-	/* see the comment on lru_gen_struct */
+	/* see the comment on lru_gen_page */
 	if (can_swap) {
 		min_seq[LRU_GEN_ANON] = min(min_seq[LRU_GEN_ANON], min_seq[LRU_GEN_FILE]);
 		min_seq[LRU_GEN_FILE] = max(min_seq[LRU_GEN_ANON], lrugen->min_seq[LRU_GEN_FILE]);
@@ -3887,7 +3887,7 @@ static void inc_max_seq(struct lruvec *lruvec, bool can_swap, bool force_scan)
 {
 	int prev, next;
 	int type, zone;
-	struct lru_gen_struct *lrugen = &lruvec->lrugen;
+	struct lru_gen_page *lrugen = &lruvec->lrugen;
 	struct pglist_data *pgdat = lruvec_pgdat(lruvec);
 restart:
 	spin_lock_irq(&pgdat->lru_lock);
@@ -3947,7 +3947,7 @@ static bool try_to_inc_max_seq(struct lruvec *lruvec, unsigned long max_seq,
 	bool success;
 	struct lru_gen_mm_walk *walk;
 	struct mm_struct *mm = NULL;
-	struct lru_gen_struct *lrugen = &lruvec->lrugen;
+	struct lru_gen_page *lrugen = &lruvec->lrugen;
 
 	VM_WARN_ON_ONCE(max_seq > READ_ONCE(lrugen->max_seq));
 
@@ -3998,7 +3998,7 @@ static bool should_run_aging(struct lruvec *lruvec, unsigned long max_seq, unsig
 	unsigned long old = 0;
 	unsigned long young = 0;
 	unsigned long total = 0;
-	struct lru_gen_struct *lrugen = &lruvec->lrugen;
+	struct lru_gen_page *lrugen = &lruvec->lrugen;
 	struct mem_cgroup *memcg = lruvec_memcg(lruvec);
 
 	for (type = !can_swap; type < ANON_AND_FILE; type++) {
@@ -4289,7 +4289,7 @@ static bool sort_page(struct lruvec *lruvec, struct page *page, struct scan_cont
 	int delta = hpage_nr_pages(page);
 	int refs = page_lru_refs(page);
 	int tier = lru_tier_from_refs(refs);
-	struct lru_gen_struct *lrugen = &lruvec->lrugen;
+	struct lru_gen_page *lrugen = &lruvec->lrugen;
 
 	VM_WARN_ON_ONCE_PAGE(gen >= MAX_NR_GENS, page);
 
@@ -4392,7 +4392,7 @@ static int scan_pages(struct lruvec *lruvec, struct scan_control *sc,
 	int scanned = 0;
 	int isolated = 0;
 	int remaining = MAX_LRU_BATCH;
-	struct lru_gen_struct *lrugen = &lruvec->lrugen;
+	struct lru_gen_page *lrugen = &lruvec->lrugen;
 	struct mem_cgroup *memcg = lruvec_memcg(lruvec);
 
 	VM_WARN_ON_ONCE(!list_empty(list));
@@ -4785,7 +4785,7 @@ done:
 
 static bool __maybe_unused state_is_valid(struct lruvec *lruvec)
 {
-	struct lru_gen_struct *lrugen = &lruvec->lrugen;
+	struct lru_gen_page *lrugen = &lruvec->lrugen;
 
 	if (lrugen->enabled) {
 		enum lru_list lru;
@@ -5068,7 +5068,7 @@ static void lru_gen_seq_show_full(struct seq_file *m, struct lruvec *lruvec,
 	int i;
 	int type, tier;
 	int hist = lru_hist_from_seq(seq);
-	struct lru_gen_struct *lrugen = &lruvec->lrugen;
+	struct lru_gen_page *lrugen = &lruvec->lrugen;
 
 	for (tier = 0; tier < MAX_NR_TIERS; tier++) {
 		seq_printf(m, "            %10d", tier);
@@ -5118,7 +5118,7 @@ static int lru_gen_seq_show(struct seq_file *m, void *v)
 	unsigned long seq;
 	bool full = !debugfs_real_fops(m->file)->write;
 	struct lruvec *lruvec = v;
-	struct lru_gen_struct *lrugen = &lruvec->lrugen;
+	struct lru_gen_page *lrugen = &lruvec->lrugen;
 	int nid = lruvec_pgdat(lruvec)->node_id;
 	struct mem_cgroup *memcg = lruvec_memcg(lruvec);
 	DEFINE_MAX_SEQ(lruvec);
@@ -5372,7 +5372,7 @@ void lru_gen_init_lruvec(struct lruvec *lruvec)
 {
 	int i;
 	int gen, type, zone;
-	struct lru_gen_struct *lrugen = &lruvec->lrugen;
+	struct lru_gen_page *lrugen = &lruvec->lrugen;
 
 	lrugen->max_seq = MIN_NR_GENS + 1;
 	lrugen->enabled = lru_gen_enabled();
