@@ -221,7 +221,7 @@ void *lru_gen_eviction(struct page *page)
 	unsigned long token;
 	unsigned long min_seq;
 	struct lruvec *lruvec;
-	struct lru_gen_struct *lrugen;
+	struct lru_gen_page *lrugen;
 	int type = page_is_file_cache(page);
 	int delta = hpage_nr_pages(page);
 	int refs = page_lru_refs(page);
@@ -253,7 +253,7 @@ void lru_gen_refault(struct page *page, void *shadow)
 	unsigned long token;
 	unsigned long min_seq;
 	struct lruvec *lruvec;
-	struct lru_gen_struct *lrugen;
+	struct lru_gen_page *lrugen;
 	struct mem_cgroup *memcg;
 	struct pglist_data *pgdat;
 	int type = page_is_file_cache(page);
