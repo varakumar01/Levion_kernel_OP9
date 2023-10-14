@@ -30,6 +30,97 @@
 
 #include <trace/events/sched.h>
 
+#if IS_ENABLED(CONFIG_PELT_UTIL_HALFLIFE_8)
+int pelt_load_avg_period = PELT8_LOAD_AVG_PERIOD;
+int pelt_load_avg_max = PELT8_LOAD_AVG_MAX;
+const u32 *pelt_runnable_avg_yN_inv = pelt8_runnable_avg_yN_inv;
+#elif IS_ENABLED(CONFIG_PELT_UTIL_HALFLIFE_10)
+int pelt_load_avg_period = PELT10_LOAD_AVG_PERIOD;
+int pelt_load_avg_max = PELT10_LOAD_AVG_MAX;
+const u32 *pelt_runnable_avg_yN_inv = pelt10_runnable_avg_yN_inv;
+#elif IS_ENABLED(CONFIG_PELT_UTIL_HALFLIFE_12)
+int pelt_load_avg_period = PELT12_LOAD_AVG_PERIOD;
+int pelt_load_avg_max = PELT12_LOAD_AVG_MAX;
+const u32 *pelt_runnable_avg_yN_inv = pelt12_runnable_avg_yN_inv;
+#elif IS_ENABLED(CONFIG_PELT_UTIL_HALFLIFE_16)
+int pelt_load_avg_period = PELT16_LOAD_AVG_PERIOD;
+int pelt_load_avg_max = PELT16_LOAD_AVG_MAX;
+const u32 *pelt_runnable_avg_yN_inv = pelt16_runnable_avg_yN_inv;
+#elif IS_ENABLED(CONFIG_PELT_UTIL_HALFLIFE_DEFAULT) || IS_ENABLED(CONFIG_PELT_UTIL_HALFLIFE_32)
+int pelt_load_avg_period = PELT32_LOAD_AVG_PERIOD;
+int pelt_load_avg_max = PELT32_LOAD_AVG_MAX;
+const u32 *pelt_runnable_avg_yN_inv = pelt32_runnable_avg_yN_inv;
+#endif
+
+int get_pelt_halflife(void)
+{
+	return pelt_load_avg_period;
+}
+EXPORT_SYMBOL_GPL(get_pelt_halflife);
+
+static int __set_pelt_halflife(void *data)
+{
+	int rc = 0;
+	int num = *(int *)data;
+
+	switch (num) {
+	case PELT8_LOAD_AVG_PERIOD:
+		pelt_load_avg_period = PELT8_LOAD_AVG_PERIOD;
+		pelt_load_avg_max = PELT8_LOAD_AVG_MAX;
+		pelt_runnable_avg_yN_inv = pelt8_runnable_avg_yN_inv;
+		pr_info("PELT half life is set to %dms\n", num);
+		break;
+	case PELT12_LOAD_AVG_PERIOD:
+		pelt_load_avg_period = PELT12_LOAD_AVG_PERIOD;
+		pelt_load_avg_max = PELT12_LOAD_AVG_MAX;
+		pelt_runnable_avg_yN_inv = pelt12_runnable_avg_yN_inv;
+		pr_info("PELT half life is set to %dms\n", num);
+		break;
+	case PELT16_LOAD_AVG_PERIOD:
+		pelt_load_avg_period = PELT16_LOAD_AVG_PERIOD;
+		pelt_load_avg_max = PELT16_LOAD_AVG_MAX;
+		pelt_runnable_avg_yN_inv = pelt16_runnable_avg_yN_inv;
+		pr_info("PELT half life is set to %dms\n", num);
+		break;
+	case PELT32_LOAD_AVG_PERIOD:
+		pelt_load_avg_period = PELT32_LOAD_AVG_PERIOD;
+		pelt_load_avg_max = PELT32_LOAD_AVG_MAX;
+		pelt_runnable_avg_yN_inv = pelt32_runnable_avg_yN_inv;
+		pr_info("PELT half life is set to %dms\n", num);
+		break;
+	default:
+		rc = -EINVAL;
+		pr_err("Failed to set PELT half life to %dms, the current value is %dms\n",
+			num, pelt_load_avg_period);
+	}
+
+	return rc;
+}
+
+int set_pelt_halflife(int num)
+{
+	return stop_machine(__set_pelt_halflife, &num, NULL);
+}
+EXPORT_SYMBOL_GPL(set_pelt_halflife);
+
+#if IS_ENABLED(CONFIG_PELT_UTIL_HALFLIFE_DEFAULT)
+static int __init set_pelt(char *str)
+{
+	int rc, num;
+
+	rc = kstrtoint(str, 0, &num);
+	if (rc) {
+		pr_err("%s: kstrtoint failed. rc=%d\n", __func__, rc);
+		return 0;
+	}
+
+	__set_pelt_halflife(&num);
+	return rc;
+}
+
+early_param("pelt", set_pelt);
+#endif
+
 /*
  * Approximate:
  *   val * y^n,    where y^32 ~= 0.5 (~1 scheduling period)
@@ -56,7 +147,7 @@ static u64 decay_load(u64 val, u64 n)
 		local_n %= LOAD_AVG_PERIOD;
 	}
 
-	val = mul_u64_u32_shr(val, runnable_avg_yN_inv[local_n], 32);
+	val = mul_u64_u32_shr(val, pelt_runnable_avg_yN_inv[local_n], 32);
 	return val;
 }
 
@@ -82,8 +173,6 @@ static u32 __accumulate_pelt_segments(u64 periods, u32 d1, u32 d3)
 
 	return c1 + c2 + c3;
 }
-
-#define cap_scale(v, s) ((v)*(s) >> SCHED_CAPACITY_SHIFT)
 
 /*
  * Accumulate the three separate parts of the sum; d1 the remainder
@@ -129,8 +218,20 @@ accumulate_sum(u64 delta, struct sched_avg *sa,
 		 * Step 2
 		 */
 		delta %= 1024;
-		contrib = __accumulate_pelt_segments(periods,
-				1024 - sa->period_contrib, delta);
+		if (load) {
+			/*
+			 * This relies on the:
+			 *
+			 * if (!load)
+			 *	runnable = running = 0;
+			 *
+			 * clause from ___update_load_sum(); this results in
+			 * the below usage of @contrib to dissapear entirely,
+			 * so no point in calculating it.
+			 */
+			contrib = __accumulate_pelt_segments(periods,
+					1024 - sa->period_contrib, delta);
+		}
 	}
 	sa->period_contrib = delta;
 
@@ -205,7 +306,9 @@ ___update_load_sum(u64 now, struct sched_avg *sa,
 	 * This means that weight will be 0 but not running for a sched_entity
 	 * but also for a cfs_rq if the latter becomes idle. As an example,
 	 * this happens during idle_balance() which calls
-	 * update_blocked_averages()
+	 * update_blocked_averages().
+	 *
+	 * Also see the comment in accumulate_sum().
 	 */
 	if (!load)
 		runnable = running = 0;
@@ -273,6 +376,7 @@ int __update_load_avg_blocked_se(u64 now, struct sched_entity *se)
 
 	return 0;
 }
+EXPORT_SYMBOL_GPL(__update_load_avg_blocked_se);
 
 int __update_load_avg_se(u64 now, struct cfs_rq *cfs_rq, struct sched_entity *se)
 {
