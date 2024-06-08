@@ -156,6 +156,11 @@ static int lpm_online_cpu(unsigned int cpu)
 	return 0;
 }
 #endif
+bool lpm_sleep_disabled(void)
+{
+	return sleep_disabled;
+}
+EXPORT_SYMBOL(lpm_sleep_disabled);
 
 #ifdef CONFIG_MSM_PM
 /**
