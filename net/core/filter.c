@@ -74,6 +74,7 @@
 #include <net/lwtunnel.h>
 #include <net/ipv6_stubs.h>
 #include <net/bpf_sk_storage.h>
+#include <net/mptcp.h>
 #include <net/transp_v6.h>
 #include <linux/btf_ids.h>
 #include <net/tls.h>
@@ -4801,6 +4802,19 @@ static int _bpf_setsockopt(struct sock *sk, int level, int optname,
 			if (sk->sk_mark != val) {
 				sk->sk_mark = val;
 				sk_dst_reset(sk);
+
+				if (is_meta_sk(sk)) {
+					struct mptcp_tcp_sock *mptcp;
+
+					mptcp_for_each_sub(tcp_sk(sk)->mpcb, mptcp) {
+						struct sock *sk_it = mptcp_to_sock(mptcp);
+
+						if (val != sk_it->sk_mark) {
+							sk_it->sk_mark = val;
+							sk_dst_reset(sk_it);
+						}
+					}
+				}
 			}
 			break;
 		case SO_BINDTODEVICE:
@@ -4848,6 +4862,14 @@ static int _bpf_setsockopt(struct sock *sk, int level, int optname,
 				if (val == -1)
 					val = 0;
 				inet->tos = val;
+
+				/* Update TOS on mptcp subflow */
+				if (is_meta_sk(sk)) {
+					struct mptcp_tcp_sock *mptcp;
+
+					mptcp_for_each_sub(tcp_sk(sk)->mpcb, mptcp)
+						inet_sk(mptcp_to_sock(mptcp))->tos = val;
+				}
 			}
 			break;
 		default:
@@ -4870,6 +4892,17 @@ static int _bpf_setsockopt(struct sock *sk, int level, int optname,
 				if (val == -1)
 					val = 0;
 				np->tclass = val;
+
+				if (is_meta_sk(sk)) {
+					struct mptcp_tcp_sock *mptcp;
+
+					mptcp_for_each_sub(tcp_sk(sk)->mpcb, mptcp) {
+						struct sock *sk_it = mptcp_to_sock(mptcp);
+
+						if (sk_it->sk_family == AF_INET6)
+							inet6_sk(sk_it)->tclass = val;
+					}
+				}
 			}
 			break;
 		default:
