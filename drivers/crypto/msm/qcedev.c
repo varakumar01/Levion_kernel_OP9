@@ -318,6 +318,10 @@ void qcedev_sha_req_cb(void *cookie, unsigned char *digest,
 
 	areq = (struct qcedev_sha_req *) cookie;
 	handle = (struct qcedev_handle *) areq->cookie;
+
+	if (!handle || !handle->cntl)
+		return;
+
 	pdev = handle->cntl;
 
 	if (digest)
@@ -342,6 +346,10 @@ void qcedev_cipher_req_cb(void *cookie, unsigned char *icv,
 
 	areq = (struct qcedev_cipher_req *) cookie;
 	handle = (struct qcedev_handle *) areq->cookie;
+
+	if (!handle || !handle->cntl)
+		return;
+
 	podev = handle->cntl;
 	qcedev_areq = podev->active_command;
 
