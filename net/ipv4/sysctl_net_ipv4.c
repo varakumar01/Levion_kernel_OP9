@@ -1285,6 +1285,15 @@ static struct ctl_table ipv4_net_table[] = {
 		.extra1		= SYSCTL_ONE
 	},
 	{
+		.procname       = "tcp_plb_enabled",
+		.data           = &init_net.ipv4.sysctl_tcp_plb_enabled,
+		.maxlen         = sizeof(int),
+		.mode           = 0644,
+		.proc_handler   = proc_dointvec_minmax,
+		.extra1         = SYSCTL_ZERO,
+		.extra2         = SYSCTL_ONE,
+	},
+	{
 		.procname       = "tcp_plb_idle_rehash_rounds",
 		.data           = &init_net.ipv4.sysctl_tcp_plb_idle_rehash_rounds,
 		.maxlen         = sizeof(u8),
