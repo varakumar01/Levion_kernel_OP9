@@ -934,6 +934,48 @@ policy_mgr_is_hw_mode_change_required(struct wlan_objmgr_psoc *psoc,
 	return false;
 }
 
+/*
+ * Check if HW mode change is needed for channel switching,
+ * avoiding unnecessary transitions in monitor mode
+ */
+bool policy_mgr_is_hw_mode_change_required_for_channel_switch(
+	struct wlan_objmgr_psoc *psoc,
+	uint8_t vdev_id,
+	uint32_t chan_freq,
+	uint32_t reason)
+{
+	struct wlan_objmgr_vdev *vdev;
+	enum QDF_OPMODE opmode;
+	struct wlan_channel *chan;
+	uint32_t current_chan = 0;
+
+	if (!psoc) {
+		policy_mgr_err("psoc is NULL");
+		return false;
+	}
+
+	vdev = wlan_objmgr_get_vdev_by_id_from_psoc(psoc, vdev_id, WLAN_POLICY_MGR_ID);
+	if (!vdev) {
+		policy_mgr_err("vdev is NULL for vdev_id %d", vdev_id);
+		return false;
+	}
+
+	opmode = wlan_vdev_mlme_get_opmode(vdev);
+
+	chan = wlan_vdev_get_active_channel(vdev);
+	if (chan)
+		current_chan = chan->ch_freq;
+
+	wlan_objmgr_vdev_release_ref(vdev, WLAN_POLICY_MGR_ID);
+
+	/* If we're in monitor mode and already on the desired channel — no HW mode change needed */
+	if (opmode == QDF_MONITOR_MODE && current_chan == chan_freq)
+		return false;
+
+	/* Otherwise — a change might be required */
+	return true;
+}
+
 static uint32_t
 policy_mgr_check_for_hw_mode_change(struct wlan_objmgr_psoc *psoc,
 				    qdf_list_t *scan_list, uint8_t vdev_id)

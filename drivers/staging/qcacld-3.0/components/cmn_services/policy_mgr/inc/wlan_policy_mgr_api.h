@@ -518,6 +518,25 @@ bool policy_mgr_check_for_session_conc(struct wlan_objmgr_psoc *psoc,
 				       uint8_t session_id, uint32_t ch_freq);
 
 /**
+ * policy_mgr_is_hw_mode_change_required_for_channel_switch() - Check if HW mode change is needed for channel switch
+ * @psoc: PSOC object pointer
+ * @vdev_id: VDEV identifier
+ * @chan_freq: Channel frequency to switch to
+ * @reason: Reason for mode change request
+ *
+ * This function checks whether a hardware mode change is required when switching
+ * to the specified channel on the given vdev. It avoids unnecessary transitions,
+ * especially useful when operating in monitor mode.
+ *
+ * Return: true if HW mode change is needed, false otherwise.
+ */
+bool policy_mgr_is_hw_mode_change_required_for_channel_switch(
+	struct wlan_objmgr_psoc *psoc,
+	uint8_t vdev_id,
+	uint32_t chan_freq,
+	uint32_t reason);
+
+/**
  * policy_mgr_handle_conc_multiport() - to handle multiport concurrency
  * @session_id: Session ID
  * @ch_freq: Channel frequency

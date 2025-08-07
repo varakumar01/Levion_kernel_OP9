@@ -24896,11 +24896,23 @@ static int __wlan_hdd_cfg80211_set_mon_ch(struct wiphy *wiphy,
 	wlan_reg_set_channel_params_for_freq(hdd_ctx->pdev,
 					     chandef->chan->center_freq,
 					     sec_ch_2g_freq, &ch_params);
-	if (wlan_hdd_change_hw_mode_for_given_chnl(adapter,
+
+	/*
+	 * Skip HW mode change if not required, to avoid unnecessary
+	 * MCC/SCC/DBS transitions. This helps in cases where monitor
+	 * mode is started on a channel that is already active on
+	 * another interface.
+	 */
+	if (policy_mgr_is_hw_mode_change_required_for_channel_switch(
+		hdd_ctx->psoc, adapter->vdev_id,
+		chandef->chan->center_freq,
+		POLICY_MGR_UPDATE_REASON_SET_OPER_CHAN)) {
+		if (wlan_hdd_change_hw_mode_for_given_chnl(adapter,
 						   chandef->chan->center_freq,
 						   POLICY_MGR_UPDATE_REASON_SET_OPER_CHAN)) {
-		hdd_err("Failed to change hw mode");
-		return -EINVAL;
+			hdd_err("Failed to change hw mode");
+			return -EINVAL;
+		}
 	}
 
 	if (adapter->monitor_mode_vdev_up_in_progress) {
