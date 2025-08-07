@@ -24841,9 +24841,23 @@ static int __wlan_hdd_cfg80211_set_mon_ch(struct wiphy *wiphy,
 	/* Verify the BW before accepting this request */
 	ch_width = hdd_map_nl_chan_width(chandef->width);
 
-	if (ch_width > CH_WIDTH_10MHZ ||
-	   (!cds_is_sub_20_mhz_enabled() && ch_width > CH_WIDTH_160MHZ)) {
-		hdd_err("invalid BW received %d", ch_width);
+	switch (ch_width) {
+	case CH_WIDTH_5MHZ:
+	case CH_WIDTH_10MHZ:
+		if (!cds_is_sub_20_mhz_enabled()) {
+			hdd_err("Sub-20MHz not supported, but got BW %d", ch_width);
+			return -EINVAL;
+		}
+		break;
+
+	case CH_WIDTH_20MHZ:
+	case CH_WIDTH_40MHZ:
+	case CH_WIDTH_80MHZ:
+	case CH_WIDTH_160MHZ:
+		break;
+
+	default:
+		hdd_err("Unsupported channel width received: %d", ch_width);
 		return -EINVAL;
 	}
 
