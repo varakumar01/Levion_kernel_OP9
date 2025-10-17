@@ -7,20 +7,26 @@
 
 #include "debug.h"
 
-extern u8 rtw_cck_rates[];
-extern u8 rtw_ofdm_rates[];
-extern u8 rtw_ht_1s_rates[];
-extern u8 rtw_ht_2s_rates[];
-extern u8 rtw_vht_1s_rates[];
-extern u8 rtw_vht_2s_rates[];
-extern u8 *rtw_rate_section[];
-extern u8 rtw_rate_size[];
+extern const u8 rtw_cck_rates[];
+extern const u8 rtw_ofdm_rates[];
+extern const u8 rtw_ht_1s_rates[];
+extern const u8 rtw_ht_2s_rates[];
+extern const u8 rtw_vht_1s_rates[];
+extern const u8 rtw_vht_2s_rates[];
+extern const u8 rtw_ht_3s_rates[];
+extern const u8 rtw_ht_4s_rates[];
+extern const u8 rtw_vht_3s_rates[];
+extern const u8 rtw_vht_4s_rates[];
+extern const u8 * const rtw_rate_section[];
+extern const u8 rtw_rate_size[];
 
 void rtw_phy_init(struct rtw_dev *rtwdev);
 void rtw_phy_dynamic_mechanism(struct rtw_dev *rtwdev);
 u8 rtw_phy_rf_power_2_rssi(s8 *rf_power, u8 path_num);
 u32 rtw_phy_read_rf(struct rtw_dev *rtwdev, enum rtw_rf_path rf_path,
 		    u32 addr, u32 mask);
+u32 rtw_phy_read_rf_sipi(struct rtw_dev *rtwdev, enum rtw_rf_path rf_path,
+			 u32 addr, u32 mask);
 bool rtw_phy_write_rf_reg_sipi(struct rtw_dev *rtwdev, enum rtw_rf_path rf_path,
 			       u32 addr, u32 mask, u32 data);
 bool rtw_phy_write_rf_reg(struct rtw_dev *rtwdev, enum rtw_rf_path rf_path,
@@ -41,9 +47,27 @@ void rtw_phy_cfg_rf(struct rtw_dev *rtwdev, const struct rtw_table *tbl,
 		    u32 addr, u32 data);
 void rtw_phy_init_tx_power(struct rtw_dev *rtwdev);
 void rtw_phy_load_tables(struct rtw_dev *rtwdev);
+u8 rtw_phy_get_tx_power_index(struct rtw_dev *rtwdev, u8 rf_path, u8 rate,
+			      enum rtw_bandwidth bw, u8 channel, u8 regd);
 void rtw_phy_set_tx_power_level(struct rtw_dev *rtwdev, u8 channel);
 void rtw_phy_tx_power_by_rate_config(struct rtw_hal *hal);
 void rtw_phy_tx_power_limit_config(struct rtw_hal *hal);
+void rtw_phy_pwrtrack_avg(struct rtw_dev *rtwdev, u8 thermal, u8 path);
+bool rtw_phy_pwrtrack_thermal_changed(struct rtw_dev *rtwdev, u8 thermal,
+				      u8 path);
+u8 rtw_phy_pwrtrack_get_delta(struct rtw_dev *rtwdev, u8 path);
+s8 rtw_phy_pwrtrack_get_pwridx(struct rtw_dev *rtwdev,
+			       struct rtw_swing_table *swing_table,
+			       u8 tbl_path, u8 therm_path, u8 delta);
+bool rtw_phy_pwrtrack_need_lck(struct rtw_dev *rtwdev);
+bool rtw_phy_pwrtrack_need_iqk(struct rtw_dev *rtwdev);
+void rtw_phy_config_swing_table(struct rtw_dev *rtwdev,
+				struct rtw_swing_table *swing_table);
+void rtw_phy_set_edcca_th(struct rtw_dev *rtwdev, u8 l2h, u8 h2l);
+void rtw_phy_adaptivity_set_mode(struct rtw_dev *rtwdev);
+void rtw_phy_parsing_cfo(struct rtw_dev *rtwdev,
+			 struct rtw_rx_pkt_stat *pkt_stat);
+void rtw_phy_tx_path_diversity(struct rtw_dev *rtwdev);
 
 struct rtw_txpwr_lmt_cfg_pair {
 	u8 regd;
@@ -52,6 +76,15 @@ struct rtw_txpwr_lmt_cfg_pair {
 	u8 rs;
 	u8 ch;
 	s8 txpwr_lmt;
+};
+
+struct rtw_phy_pg_cfg_pair {
+	u32 band;
+	u32 rf_path;
+	u32 tx_num;
+	u32 addr;
+	u32 bitmask;
+	u32 data;
 };
 
 #define RTW_DECL_TABLE_PHY_COND_CORE(name, cfg, path)	\
@@ -85,7 +118,7 @@ const struct rtw_table name ## _tbl = {			\
 
 static inline const struct rtw_rfe_def *rtw_get_rfe_def(struct rtw_dev *rtwdev)
 {
-	struct rtw_chip_info *chip = rtwdev->chip;
+	const struct rtw_chip_info *chip = rtwdev->chip;
 	struct rtw_efuse *efuse = &rtwdev->efuse;
 	const struct rtw_rfe_def *rfe_def = NULL;
 
@@ -118,6 +151,8 @@ struct rtw_power_params {
 	u8 pwr_base;
 	s8 pwr_offset;
 	s8 pwr_limit;
+	s8 pwr_remnant;
+	s8 pwr_sar;
 };
 
 void
@@ -156,5 +191,12 @@ enum rtw_phy_cck_pd_lv {
 #define	MASKL3BYTES		0x00ffffff
 
 #define CCK_FA_AVG_RESET 0xffffffff
+
+#define LSSI_READ_ADDR_MASK	0x7f800000
+#define LSSI_READ_EDGE_MASK	0x80000000
+#define LSSI_READ_DATA_MASK	0xfffff
+
+#define RRSR_RATE_ORDER_MAX	0xfffff
+#define RRSR_RATE_ORDER_CCK_LEN	4
 
 #endif
