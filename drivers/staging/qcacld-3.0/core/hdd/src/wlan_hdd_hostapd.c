@@ -6843,7 +6843,8 @@ static int __wlan_hdd_cfg80211_start_ap(struct wiphy *wiphy,
 			goto err_start_bss;
 		}
 
-		if (wdev->chandef.chan->center_freq !=
+		if (wdev->chandef.chan &&
+		    wdev->chandef.chan->center_freq !=
 				params->chandef.chan->center_freq)
 			params->chandef = wdev->chandef;
 		/*
