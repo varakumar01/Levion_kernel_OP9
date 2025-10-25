@@ -71,7 +71,7 @@ extern const struct nla_policy
 	.doit = wlan_hdd_cfg80211_bcn_rcv_op,				\
 	vendor_command_policy(beacon_reporting_params_policy,		\
 			      QCA_WLAN_VENDOR_ATTR_BEACON_REPORTING_MAX)\
-},
+}
 
 #define BCN_RECV_FEATURE_VENDOR_EVENTS			\
 [QCA_NL80211_VENDOR_SUBCMD_BEACON_REPORTING_INDEX] = {		\
