@@ -2,6 +2,6 @@ config RTL8188EU
 	tristate "Realtek 8188E USB WiFi"
 	depends on USB
 	depends on NETHUNTER_SUPPORT
-	default n
+	default y
 	---help---
 	  Help message of RTL8188EU
