@@ -203,7 +203,7 @@ static int mptcp_rcv_state_process(struct sock *meta_sk, struct sock *sk,
 			break;
 
 		tcp_set_state(meta_sk, TCP_FIN_WAIT2);
-		meta_sk->sk_shutdown |= SEND_SHUTDOWN;
+		WRITE_ONCE(meta_sk->sk_shutdown, meta_sk->sk_shutdown | SEND_SHUTDOWN);
 
 		dst = __sk_dst_get(sk);
 		if (dst)
@@ -1362,7 +1362,7 @@ void mptcp_fin(struct sock *meta_sk)
 	inet_csk_schedule_ack(sk);
 
 	if (!mpcb->in_time_wait) {
-		meta_sk->sk_shutdown |= RCV_SHUTDOWN;
+		WRITE_ONCE(meta_sk->sk_shutdown, meta_sk->sk_shutdown | RCV_SHUTDOWN);
 		sock_set_flag(meta_sk, SOCK_DONE);
 		state = meta_sk->sk_state;
 	} else {
@@ -2477,6 +2477,11 @@ static void mptcp_rcv_synsent_fastopen(struct sock *meta_sk)
 			_mptcp_rcv_synsent_fastopen(meta_sk, skb_rtx_head,
 						    true);
 		}
+
+		if (master_tp->total_retrans)
+			master_tp->fastopen_client_fail = TFO_SYN_RETRANSMITTED;
+		else
+			master_tp->fastopen_client_fail = TFO_DATA_NOT_ACKED;
 	}
 
 	/* We can advance write_seq by the number of bytes unacknowledged
