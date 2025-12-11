@@ -2352,8 +2352,11 @@ void tcp_set_state(struct sock *sk, int state)
 		}
 		break;
 	case TCP_CLOSE_WAIT:
-		if (oldstate == TCP_SYN_RECV)
+		if (oldstate == TCP_SYN_RECV) {
 			TCP_INC_STATS(sock_net(sk), TCP_MIB_CURRESTAB);
+			if (is_meta_sk(sk))
+				MPTCP_INC_STATS(sock_net(sk), MPTCP_MIB_CURRESTAB);
+		}
 		break;
 
 	case TCP_CLOSE:
@@ -2456,24 +2459,12 @@ bool tcp_check_oom(struct sock *sk, int shift)
 	return too_many_orphans || out_of_socket_memory;
 }
 
-void tcp_close(struct sock *sk, long timeout)
+void __tcp_close(struct sock *sk, long timeout)
 {
 	bool data_was_unread = false;
 	struct sk_buff *skb;
 	int state;
 
-	if (is_meta_sk(sk)) {
-		/* TODO: Currently forcing timeout to 0 because
-		 * sk_stream_wait_close will complain during lockdep because
-		 * of the mpcb_mutex (circular lock dependency through
-		 * inet_csk_listen_stop()).
-		 * We should find a way to get rid of the mpcb_mutex.
-		 */
-		mptcp_close(sk, 0);
-		return;
-	}
-
-	lock_sock(sk);
 	WRITE_ONCE(sk->sk_shutdown, SHUTDOWN_MASK);
 
 	if (sk->sk_state == TCP_LISTEN) {
@@ -2639,6 +2630,23 @@ adjudge_to_death:
 out:
 	bh_unlock_sock(sk);
 	local_bh_enable();
+}
+
+void tcp_close(struct sock *sk, long timeout)
+{
+	if (is_meta_sk(sk)) {
+		/* TODO: Currently forcing timeout to 0 because
+		 * sk_stream_wait_close will complain during lockdep because
+		 * of the mpcb_mutex (circular lock dependency through
+		 * inet_csk_listen_stop()).
+		 * We should find a way to get rid of the mpcb_mutex.
+		 */
+		mptcp_close(sk, 0);
+		return;
+	}
+
+	lock_sock(sk);
+	__tcp_close(sk, timeout);
 	release_sock(sk);
 	if (!sk->sk_net_refcnt)
 		inet_csk_clear_xmit_timers_sync(sk);
