@@ -443,18 +443,6 @@ static void smc_options_write(__be32 *ptr, u16 *options)
 #endif
 }
 
-struct tcp_out_options {
-	u16 options;		/* bit field of OPTION_* */
-	u16 mss;		/* 0 to disable */
-	u8 ws;			/* window scale, 0 to disable */
-	u8 num_sack_blocks;	/* number of SACK blocks to include */
-	u8 hash_size;		/* bytes in hash_location */
-	u8 bpf_opt_len;		/* length of BPF hdr option */
-	__u8 *hash_location;	/* temporary pointer, overloaded */
-	__u32 tsval, tsecr;	/* need to include OPTION_TS */
-	struct tcp_fastopen_cookie *fastopen_cookie;	/* Fast open cookie */
-};
-
 #ifdef CONFIG_CGROUP_BPF
 static int bpf_skops_write_hdr_opt_arg0(struct sk_buff *skb,
 					enum tcp_synack_type synack_type)
