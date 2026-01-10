@@ -752,7 +752,6 @@ static void qrtr_ns_data_ready(struct sock *sk)
 void qrtr_ns_init(void)
 {
 	struct sockaddr_qrtr sq;
-	int rx_buf_sz = INT_MAX;
 	int ret;
 
 	INIT_LIST_HEAD(&qrtr_ns.lookups);
@@ -790,8 +789,6 @@ void qrtr_ns_init(void)
 		pr_err("failed to bind to socket\n");
 		goto err_wq;
 	}
-	kernel_setsockopt(qrtr_ns.sock, SOL_SOCKET, SO_RCVBUF,
-			  (char *)&rx_buf_sz, sizeof(rx_buf_sz));
 
 	qrtr_ns.bcast_sq.sq_family = AF_QIPCRTR;
 	qrtr_ns.bcast_sq.sq_node = QRTR_NODE_BCAST;
