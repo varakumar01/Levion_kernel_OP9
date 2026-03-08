@@ -17015,7 +17015,7 @@ static ssize_t wlan_hdd_state_ctrl_param_write(struct file *filp,
 	static const char wlan_on_str[] = "ON";
 	int ret;
 	unsigned long rc;
-	struct hdd_context *hdd_ctx;
+	struct hdd_context *hdd_ctx = NULL;
 	bool monitor_active = false;
 	bool monitor_mode_global = false;
 	bool turning_on = false;
