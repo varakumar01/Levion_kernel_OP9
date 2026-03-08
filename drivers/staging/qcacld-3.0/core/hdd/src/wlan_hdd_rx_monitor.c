@@ -139,7 +139,7 @@ int hdd_enable_monitor_mode(struct net_device *dev)
 int hdd_disable_monitor_mode(struct net_device *dev)
 {
 	void *soc = cds_get_context(QDF_MODULE_ID_SOC);
-	uint8_t vdev_id;
+	int vdev_id;
 	int ret;
 #ifdef FEATURE_FRAME_INJECTION_SUPPORT
 	struct hdd_adapter *adapter = WLAN_HDD_GET_PRIV_PTR(dev);
@@ -166,9 +166,3 @@ int hdd_disable_monitor_mode(struct net_device *dev)
 	return ret;
 }
 
-int hdd_disable_monitor_mode(void)
-{
-	void *soc = cds_get_context(QDF_MODULE_ID_SOC);
-
-	return cdp_reset_monitor_mode(soc, OL_TXRX_PDEV_ID, false);
-}
