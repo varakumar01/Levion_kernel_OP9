@@ -1766,7 +1766,7 @@ QDF_STATUS wma_handle_injection_fw_response(tp_wma_handle wma_handle,
 	WMA_LOGD("Handling firmware injection response: desc_id=%u, status=0x%x", desc_id, status);
 
 	if (!wma_handle) {
-		WMA_LOGE("Invalid WMA handle");
+		wma_err("Invalid WMA handle");
 		return QDF_STATUS_E_INVAL;
 	}
 
@@ -1777,7 +1777,7 @@ QDF_STATUS wma_handle_injection_fw_response(tp_wma_handle wma_handle,
 		/* Handle the firmware error */
 		qdf_status = wma_handle_firmware_injection_error(wma_handle, status, 0, NULL);
 		if (QDF_IS_STATUS_ERROR(qdf_status) && qdf_status != QDF_STATUS_E_PENDING) {
-			WMA_LOGE("Failed to handle firmware injection error: %d", qdf_status);
+			wma_err("Failed to handle firmware injection error: %d", qdf_status);
 			return qdf_status;
 		}
 	} else {
@@ -1915,7 +1915,7 @@ QDF_STATUS wma_handle_firmware_injection_error(tp_wma_handle wma_handle,
 	WMA_LOGD("Handling firmware injection error: code=0x%x, vdev_id=%u", error_code, vdev_id);
 
 	if (!wma_handle) {
-		WMA_LOGE("Invalid WMA handle");
+		wma_err("Invalid WMA handle");
 		return QDF_STATUS_E_INVAL;
 	}
 
@@ -1978,7 +1978,7 @@ QDF_STATUS wma_handle_firmware_injection_error(tp_wma_handle wma_handle,
 	if (should_retry && req) {
 		/* Check retry count to avoid infinite loops */
 		if (req->retry_count < 3) { /* Maximum 3 retries */
-			WMA_LOGI("Retrying injection after %u ms delay (attempt %u)",
+			wma_info("Retrying injection after %u ms delay (attempt %u)",
 				 retry_delay_ms, req->retry_count + 1);
 			
 			/* Schedule retry with delay */
@@ -1994,9 +1994,9 @@ QDF_STATUS wma_handle_firmware_injection_error(tp_wma_handle wma_handle,
 
 	/* If we reach here, either no retry was needed or retry failed */
 	if (QDF_IS_STATUS_ERROR(status)) {
-		WMA_LOGE("Firmware injection error handling failed: %d", status);
+		wma_err("Firmware injection error handling failed: %d", status);
 	} else {
-		WMA_LOGI("Firmware injection error handled successfully");
+		wma_info("Firmware injection error handled successfully");
 	}
 
 	return status;
@@ -2026,7 +2026,7 @@ QDF_STATUS wma_retry_injection_frame(tp_wma_handle wma_handle,
 		 vdev_id, error_type, req->retry_count);
 
 	if (!wma_handle || !req) {
-		WMA_LOGE("Invalid parameters for retry");
+		wma_err("Invalid parameters for retry");
 		return QDF_STATUS_E_INVAL;
 	}
 
@@ -2042,7 +2042,7 @@ QDF_STATUS wma_retry_injection_frame(tp_wma_handle wma_handle,
 	/* Add some jitter to avoid thundering herd */
 	delay_ms += (qdf_get_log_timestamp() % 50); /* Add 0-49ms jitter */
 
-	WMA_LOGI("Scheduling injection retry in %u ms (attempt %u)",
+	wma_info("Scheduling injection retry in %u ms (attempt %u)",
 		 delay_ms, req->retry_count);
 
 	/* For now, we'll simulate the retry by calling the send function again */
@@ -2056,7 +2056,7 @@ QDF_STATUS wma_retry_injection_frame(tp_wma_handle wma_handle,
 		return status;
 	}
 
-	WMA_LOGI("Injection retry initiated successfully");
+	wma_info("Injection retry initiated successfully");
 	return QDF_STATUS_SUCCESS;
 }
 
@@ -2078,13 +2078,13 @@ QDF_STATUS wma_sync_firmware_injection_state(tp_wma_handle wma_handle,
 	WMA_LOGD("Synchronizing firmware injection state for vdev_id=%u", vdev_id);
 
 	if (!wma_handle) {
-		WMA_LOGE("Invalid WMA handle");
+		wma_err("Invalid WMA handle");
 		return QDF_STATUS_E_INVAL;
 	}
 
 	/* Check if VDEV is valid and active */
 	if (vdev_id >= wma_handle->max_bssid) {
-		WMA_LOGE("Invalid VDEV ID: %u", vdev_id);
+		wma_err("Invalid VDEV ID: %u", vdev_id);
 		return QDF_STATUS_E_INVAL;
 	}
 
@@ -2103,14 +2103,14 @@ QDF_STATUS wma_sync_firmware_injection_state(tp_wma_handle wma_handle,
 
 	/* Flush any pending injection frames for this VDEV */
 	/* This would be implemented as part of the queue management */
-	WMA_LOGI("Flushing pending injection frames for vdev_id=%u", vdev_id);
+	wma_info("Flushing pending injection frames for vdev_id=%u", vdev_id);
 
 	/* Send a sync command to firmware if needed */
 	/* This would involve sending a WMI command to query/reset injection state */
 	WMA_LOGD("Sending injection state sync command to firmware");
 
 	/* For now, we'll just log that synchronization is complete */
-	WMA_LOGI("Firmware injection state synchronized for vdev_id=%u", vdev_id);
+	wma_info("Firmware injection state synchronized for vdev_id=%u", vdev_id);
 
 	return status;
 }
