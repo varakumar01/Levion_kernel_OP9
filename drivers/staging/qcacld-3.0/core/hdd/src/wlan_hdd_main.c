@@ -7587,7 +7587,7 @@ QDF_STATUS hdd_stop_adapter(struct hdd_context *hdd_ctx,
 		wlan_hdd_scan_abort(adapter);
 		hdd_deregister_hl_netdev_fc_timer(adapter);
 		hdd_deregister_tx_flow_control(adapter);
-		status = hdd_disable_monitor_mode();
+		status = hdd_disable_monitor_mode(adapter->dev);
 		if (QDF_IS_STATUS_ERROR(status))
 			hdd_err_rl("datapath reset failed for montior mode");
 		hdd_set_idle_ps_config(hdd_ctx, true);
