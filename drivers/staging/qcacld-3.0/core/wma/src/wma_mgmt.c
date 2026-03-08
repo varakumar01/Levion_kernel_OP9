@@ -2546,7 +2546,7 @@ static int wma_process_mgmt_tx_completion(tp_wma_handle wma_handle,
 
 	buf = mgmt_txrx_get_nbuf(pdev, desc_id);
 	if (!buf) {
-		WMA_LOGE("%s: no mgmt desc for id %u status %u", __func__,
+		wma_err("%s: no mgmt desc for id %u status %u", __func__,
 			 desc_id, status);
 		return -EINVAL;
 	}

@@ -1373,7 +1373,7 @@ wma_mgmt_tx_ack_comp_hdlr(void *wma_context, qdf_nbuf_t netbuf, int32_t status)
 			WMI_MGMT_TX_COMP_TYPE_DISCARD :
 			WMI_MGMT_TX_COMP_TYPE_COMPLETE_OK;
 
-		WMA_LOGI("MGMT TX completion (legacy injection): desc_id=%u raw_status=%d mapped_status=%u",
+		wma_info("MGMT TX completion (legacy injection): desc_id=%u raw_status=%d mapped_status=%u",
 			 desc_id, status, mapped_status);
 		wma_handle_injection_fw_response(wma_handle, desc_id,
 						 mapped_status);
