@@ -92,21 +92,24 @@ struct wireless_dev;
 	.flags = WIPHY_VENDOR_CMD_NEED_WDEV | \
 		 WIPHY_VENDOR_CMD_NEED_NETDEV | \
 		 WIPHY_VENDOR_CMD_NEED_RUNNING, \
-	.doit = hdd_frame_inject_netlink \
+	.doit = hdd_frame_inject_netlink, \
+	vendor_command_policy(VENDOR_CMD_RAW_DATA, 0) \
 }, \
 { \
 	.info.vendor_id = QCA_NL80211_VENDOR_ID, \
 	.info.subcmd = QCA_NL80211_VENDOR_SUBCMD_FRAME_INJECT_STATS, \
 	.flags = WIPHY_VENDOR_CMD_NEED_WDEV | \
 		 WIPHY_VENDOR_CMD_NEED_NETDEV, \
-	.doit = hdd_get_injection_stats_netlink \
+	.doit = hdd_get_injection_stats_netlink, \
+	vendor_command_policy(VENDOR_CMD_RAW_DATA, 0) \
 }, \
 { \
 	.info.vendor_id = QCA_NL80211_VENDOR_ID, \
 	.info.subcmd = QCA_NL80211_VENDOR_SUBCMD_FRAME_INJECT_RESET, \
 	.flags = WIPHY_VENDOR_CMD_NEED_WDEV | \
 		 WIPHY_VENDOR_CMD_NEED_NETDEV, \
-	.doit = hdd_reset_injection_stats_netlink \
+	.doit = hdd_reset_injection_stats_netlink, \
+	vendor_command_policy(VENDOR_CMD_RAW_DATA, 0) \
 }
 
 /**
