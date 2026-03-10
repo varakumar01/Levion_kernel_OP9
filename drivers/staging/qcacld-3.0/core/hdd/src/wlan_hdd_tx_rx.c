@@ -897,19 +897,6 @@ void hdd_get_transmit_mac_addr(struct hdd_adapter *adapter, struct sk_buff *skb,
 }
 
 #ifdef FEATURE_FRAME_INJECTION_SUPPORT
-struct ieee80211_radiotap_header {
-	uint8_t it_version;
-	uint8_t it_pad;
-	__le16 it_len;
-	__le32 it_present;
-}	__packed;
-
-static inline uint16_t ieee80211_get_radiotap_len(const uint8_t *data)
-{
-	struct ieee80211_radiotap_header *hdr = (void *)data;
-	return get_unaligned_le16(&hdr->it_len);
-}
-
 /**
  * hdd_is_monitor_tx_dev() - detect monitor-mode netdev tx context
  * @adapter: HDD adapter bound to @dev
@@ -987,11 +974,11 @@ static void hdd_monitor_mode_tx_inject(struct hdd_adapter *adapter,
 	 * Prefer radiotap format (normal for monitor TX), but allow fallback to
 	 * raw 802.11 if userspace or netdev path does not prepend radiotap.
 	 */
-	if (skb->len >= sizeof(struct ieee80211_radiotap_header)) {
+	if (skb->len >= sizeof(*rthdr)) {
 		rthdr = (struct ieee80211_radiotap_header *)skb->data;
 		if (rthdr->it_version == 0) {
 			rtap_len = ieee80211_get_radiotap_len(skb->data);
-			if (rtap_len >= sizeof(struct ieee80211_radiotap_header) && rtap_len < skb->len)
+			if (rtap_len >= sizeof(*rthdr) && rtap_len < skb->len)
 				has_radiotap = true;
 		}
 	}
