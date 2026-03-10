@@ -37,6 +37,8 @@
 #include <cds_sched.h>
 #include <cds_utils.h>
 
+#include <net/ieee80211_radiotap.h>
+
 #include <wlan_hdd_p2p.h>
 #include <linux/wireless.h>
 #include <net/cfg80211.h>
@@ -63,10 +65,8 @@
 
 #include "wlan_hdd_nud_tracking.h"
 #include "dp_txrx.h"
-#if defined(WLAN_SUPPORT_RX_FISA)
+#ifdef WLAN_SUPPORT_RX_FISA
 #include "dp_fisa_rx.h"
-#else
-#include <net/ieee80211_radiotap.h>
 #endif
 #include <ol_defines.h>
 #include "cfg_ucfg_api.h"
