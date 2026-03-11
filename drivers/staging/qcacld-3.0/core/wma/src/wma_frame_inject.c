@@ -277,6 +277,23 @@ wma_injection_ensure_tx_vdev(tp_wma_handle wma,
 	if (g_inj_tx_vdev.created) {
 		if (g_inj_tx_vdev.chanfreq == chanfreq)
 			return QDF_STATUS_SUCCESS;
+
+	qdf_mem_zero(&vstart, sizeof(vstart));
+		vstart.vdev_id            = g_inj_tx_vdev.vdev_id;
+		vstart.channel.mhz        = chanfreq;
+		vstart.channel.cfreq1     = chanfreq;
+		vstart.channel.cfreq2     = 0;
+		vstart.channel.phy_mode   = (chanfreq < 4000) ? 1 : 0;
+		vstart.channel.maxregpower = 20;
+		vstart.channel.maxpower    = 20;
+
+		status = wmi_unified_vdev_start_send(wma->wmi_handle, &vstart);
+		if (QDF_IS_STATUS_SUCCESS(status)) {
+			g_inj_tx_vdev.chanfreq = chanfreq;
+		qdf_sleep(15);
+			return QDF_STATUS_SUCCESS;
+		}
+
 		/* Channel changed – tear down and recreate */
 		wma_injection_destroy_tx_vdev(wma);
 	}
@@ -345,7 +362,8 @@ wma_injection_ensure_tx_vdev(tp_wma_handle wma,
 	 * Without these sleeps the mgmt-TX arrives before VDEV_CREATE is
 	 * done and firmware asserts in wlan_vdev_find_vdev.
 	 */
-	msleep(150);
+
+	// msleep(150);
 
 	/* ---------- 2. VDEV START (20 MHz basic mode) ---------- */
 	qdf_mem_zero(&vstart, sizeof(vstart));
@@ -365,7 +383,8 @@ wma_injection_ensure_tx_vdev(tp_wma_handle wma,
 		wma_err("Injection TX vdev start failed: %d", status);
 		goto err_stop;
 	}
-	msleep(150);
+
+	// msleep(150);
 
 	/* ---------- 3. PEER CREATE (self-peer → fw vdev+0xc) ---------- */
 	qdf_mem_zero(&pcreate, sizeof(pcreate));
@@ -378,7 +397,8 @@ wma_injection_ensure_tx_vdev(tp_wma_handle wma,
 		wma_err("Injection TX vdev peer create failed: %d", status);
 		goto err_stop;
 	}
-	msleep(100);
+
+	// msleep(100);
 
 	/*
 	 * Skip VDEV_UP.  For STA vdevs, firmware's wlan_vdev_up
@@ -427,17 +447,17 @@ static void wma_injection_destroy_tx_vdev(tp_wma_handle wma)
 	wmi_unified_peer_delete_send(wma->wmi_handle,
 				     g_inj_tx_vdev.mac_addr,
 				     g_inj_tx_vdev.vdev_id);
-	msleep(100);
+	// msleep(100);
 
 	/* 2. VDEV_STOP (we did VDEV_START during create) */
 	wmi_unified_vdev_stop_send(wma->wmi_handle,
 				   g_inj_tx_vdev.vdev_id);
-	msleep(100);
+	// msleep(100);
 
 	/* 3. VDEV_DELETE */
 	wmi_unified_vdev_delete_send(wma->wmi_handle,
 				     g_inj_tx_vdev.vdev_id);
-	msleep(100);
+	// msleep(100);
 
 	wma_info("Injection TX helper vdev destroyed: vdev_id=%u",
 		 g_inj_tx_vdev.vdev_id);
@@ -482,17 +502,17 @@ void wma_injection_pre_stop_cleanup(tp_wma_handle wma_handle)
 	wmi_unified_peer_delete_send(wma_handle->wmi_handle,
 				     g_inj_tx_vdev.mac_addr,
 				     g_inj_tx_vdev.vdev_id);
-	msleep(100);
+	// msleep(100);
 
 	/* 2. VDEV_STOP (we did VDEV_START during create) */
 	wmi_unified_vdev_stop_send(wma_handle->wmi_handle,
 				   g_inj_tx_vdev.vdev_id);
-	msleep(100);
+	// msleep(100);
 
 	/* 3. VDEV_DELETE */
 	wmi_unified_vdev_delete_send(wma_handle->wmi_handle,
 				     g_inj_tx_vdev.vdev_id);
-	msleep(100);
+	// msleep(100);
 
 	wma_info("Pre-stop cleanup: injection helper vdev destroyed: vdev_id=%u",
 		 g_inj_tx_vdev.vdev_id);
