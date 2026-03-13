@@ -287,7 +287,7 @@ wma_injection_ensure_tx_vdev(tp_wma_handle wma,
 		vstart.channel.mhz        = chanfreq;
 		vstart.channel.cfreq1     = chanfreq;
 		vstart.channel.cfreq2     = 0;
-		vstart.channel.phy_mode   = (chanfreq < 4000) ? WMI_HOST_MODE_11G : WMI_HOST_MODE_11A;
+		vstart.channel.phy_mode   = (enum wlan_phymode)((chanfreq < 4000) ? WMI_HOST_MODE_11G : WMI_HOST_MODE_11A);
 		vstart.channel.maxregpower = 20;
 		vstart.channel.maxpower    = 20;
 		vstart.is_restart         = true;
@@ -402,7 +402,7 @@ wma_injection_ensure_tx_vdev(tp_wma_handle wma,
 	vstart.channel.cfreq1     = chanfreq;
 	vstart.channel.cfreq2     = 0;
 	/* 2.4 GHz → WMI_HOST_MODE_11G, 5 GHz → WMI_HOST_MODE_11A */
-	vstart.channel.phy_mode   = (chanfreq < 4000) ? WMI_HOST_MODE_11G : WMI_HOST_MODE_11A;
+	vstart.channel.phy_mode   = (enum wlan_phymode)((chanfreq < 4000) ? WMI_HOST_MODE_11G : WMI_HOST_MODE_11A);
 	vstart.channel.maxregpower = 20;
 	vstart.channel.maxpower    = 20;
 	vstart.beacon_interval    = 0;
