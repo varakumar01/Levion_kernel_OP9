@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0
 /*
- * Copyright (C) 2023-2024 Sultan Alsawaf <sultan@kerneltoast.com>.
+ * Copyright (C) 2023-2025 Sultan Alsawaf <sultan@kerneltoast.com>.
  */
 
 /**
@@ -30,6 +30,8 @@ struct cass_cpu_cand {
 	unsigned int exit_lat;
 	unsigned long cap;
 	unsigned long cap_max;
+	unsigned long cap_no_therm;
+	unsigned long cap_orig;
 	unsigned long eff_util;
 	unsigned long hard_util;
 	unsigned long util;
@@ -39,6 +41,12 @@ static __always_inline
 void cass_cpu_util(struct cass_cpu_cand *c, int this_cpu, bool sync)
 {
 	struct rq *rq = cpu_rq(c->cpu);
+
+#ifdef CONFIG_SCHED_WALT
+	/* WALT tracking: use native WALT-aware CPU utilization */
+	c->util = cpu_util(c->cpu);
+#else
+	/* PELT tracking: read straight from CFS runqueue */
 	struct cfs_rq *cfs_rq = &rq->cfs;
 	unsigned long est;
 
@@ -52,6 +60,7 @@ void cass_cpu_util(struct cass_cpu_cand *c, int this_cpu, bool sync)
 			c->util = est;
 		}
 	}
+#endif
 
 	/*
 	 * Deduct @current's util from this CPU if this is a sync wake, unless
@@ -70,13 +79,31 @@ void cass_cpu_util(struct cass_cpu_cand *c, int this_cpu, bool sync)
 	 * CFS and RT tasks when CASS selects a CPU for them.
 	 */
 	c->cap = c->cap_max - min(c->hard_util, c->cap_max - 1);
+
+	/* Get the current capacity with thermal pressure excluded */
+	c->cap_no_therm = c->cap_orig - min(c->hard_util, c->cap_orig - 1);
+}
+
+/*
+ * Returns true if @c is a CPU with the maximum possible original capacity and
+ * there's only one such CPU in the system (i.e., if @c is the prime CPU).
+ */
+static __always_inline
+bool cass_prime_cpu(const struct cass_cpu_cand *c)
+{
+	/*
+	 * On arm64, the prime CPU is always the last CPU. If it doesn't have
+	 * the same original capacity as the prior CPU, then it is prime.
+	 */
+	return c->cpu == nr_cpu_ids - 1 &&
+	       arch_scale_cpu_capacity(nr_cpu_ids - 2) != SCHED_CAPACITY_SCALE;
 }
 
 /* Returns true if @a is a better CPU than @b */
 static __always_inline
 bool cass_cpu_better(const struct cass_cpu_cand *a,
 		     const struct cass_cpu_cand *b, unsigned long p_util,
-		     int this_cpu, int prev_cpu, bool sync)
+		     int this_cpu, int prev_cpu, int prev_llc_id, bool sync)
 {
 #define cass_cmp(a, b) ({ res = (a) - (b); })
 #define cass_eq(a, b) ({ res = (a) == (b); })
@@ -93,8 +120,17 @@ bool cass_cpu_better(const struct cass_cpu_cand *a,
 		goto done;
 
 	/* Prefer the CPU that fits the task */
+#ifdef CONFIG_SCHED_WALT
 	if (cass_cmp(fits_capacity(p_util, a->cap_max),
 		     fits_capacity(p_util, b->cap_max)))
+#else
+	if (cass_cmp(fits_capacity(p_util, a->cpu),
+		     fits_capacity(p_util, b->cpu)))
+#endif
+		goto done;
+
+	/* Prefer the CPU that isn't the single fastest one in the system */
+	if (cass_cmp(cass_prime_cpu(b), cass_prime_cpu(a)))
 		goto done;
 
 	/* Prefer the CPU with lower relative utilization */
@@ -121,9 +157,16 @@ bool cass_cpu_better(const struct cass_cpu_cand *a,
 	if (cass_eq(a->cpu, prev_cpu) || !cass_cmp(b->cpu, prev_cpu))
 		goto done;
 
-	/* Prefer the CPU that shares a cache with the previous CPU */
-	if (cass_cmp(cpus_share_cache(a->cpu, prev_cpu),
-		     cpus_share_cache(b->cpu, prev_cpu)))
+	/*
+	 * Prefer the CPU that shares a cache with the previous CPU.
+	 *
+	 * prev_llc_id is negative when all CPUs share the same LLC (DynamIQ)
+	 * or when sched domains are torn down. In both cases, sd_llc_id cannot
+	 * differentiate candidates. So, we skip it.
+	 */
+	if (prev_llc_id >= 0 &&
+	    cass_cmp(per_cpu(sd_llc_id, a->cpu) == prev_llc_id,
+		     per_cpu(sd_llc_id, b->cpu) == prev_llc_id))
 		goto done;
 
 	/* @a isn't a better CPU than @b. @res must be <=0 to indicate such. */
@@ -139,14 +182,34 @@ static int cass_best_cpu(struct task_struct *p, int prev_cpu, bool sync, bool rt
 	int this_cpu = raw_smp_processor_id();
 	unsigned long p_util, uc_min;
 	bool has_idle = false;
-	int cidx = 0, cpu;
+	int cidx = 0, cpu, prev_llc_id;
 
 	/*
 	 * Get the utilization and uclamp minimum threshold for this task. Note
 	 * that RT tasks don't have per-entity load tracking.
 	 */
+#ifdef CONFIG_SCHED_WALT
+	p_util = rt ? 0 : task_util(p);
+#else
 	p_util = rt ? 0 : task_util_est(p);
+#endif
 	uc_min = uclamp_eff_value(p, UCLAMP_MIN);
+
+	/*
+	 * When the LLC spans all CPUs (e.g. DynamIQ), every candidate shares
+	 * the cache with prev_cpu and the comparison can never produce a winner.
+	 * When sched domains are torn down, sd_llc_id holds stale values. We
+	 * identify this by making sd_llc RCU-safe. There is no need of rcu_read_lock()
+	 * here since this is a non-preemptible context.
+	 *
+	 * In such scenarios, set prev_llc_id to -1 so that cass_cpu_better() skips
+	 * the check entirely, avoiding unnecessary per_cpu() reads in the hot-path.
+	 */
+	if (unlikely(!rcu_dereference(per_cpu(sd_llc, prev_cpu))) ||
+	    per_cpu(sd_llc_size, prev_cpu) >= nr_cpu_ids)
+		prev_llc_id = -1;
+	else
+		prev_llc_id = per_cpu(sd_llc_id, prev_cpu);
 
 	/*
 	 * Find the best CPU to wake @p on. Although idle_get_state() requires
@@ -166,7 +229,10 @@ static int cass_best_cpu(struct task_struct *p, int prev_cpu, bool sync, bool rt
 		struct rq *rq = cpu_rq(cpu);
 
 		/* Get the original, maximum _possible_ capacity of this CPU */
-		curr->cap_max = arch_scale_cpu_capacity(cpu);
+		curr->cap_orig = arch_scale_cpu_capacity(cpu);
+
+		/* Get the _current_, throttled maximum capacity of this CPU */
+		curr->cap_max = curr->cap_orig - thermal_load_avg(rq);
 
 		/* Prefer the CPU that more closely meets the uclamp minimum */
 		if (curr->cap_max < uc_min && curr->cap_max < best->cap_max)
@@ -177,18 +243,34 @@ static int cass_best_cpu(struct task_struct *p, int prev_cpu, bool sync, bool rt
 		 * sync wakes, treat the current CPU as idle if @current is the
 		 * only running task.
 		 */
+		curr->cpu = cpu;
+#ifdef CONFIG_SCHED_WALT
 		if ((sync && cpu == this_cpu && rq->nr_running == 1) ||
 		    available_idle_cpu(cpu) || sched_idle_cpu(cpu)) {
-			/*
-			 * A non-idle candidate may be better when @p is uclamp
-			 * boosted. Otherwise, always prefer idle candidates.
-			 */
-			if (!uc_min) {
+			if (!uc_min && !cass_prime_cpu(curr)) {
 				/* Discard any previous non-idle candidate */
 				if (!has_idle)
 					best = curr;
 				has_idle = true;
 			}
+#else
+		if ((sync && cpu == this_cpu && rq->nr_running == 1) ||
+		    choose_idle_cpu(cpu, p)) {
+			/*
+			 * A non-idle candidate may be better for energy
+			 * efficiency when @p is uclamp boosted above @curr's
+			 * minimum capacity, or when the only idle candidate
+			 * found so far is the prime CPU. Otherwise, prefer idle
+			 * candidates.
+			 */
+			if (!has_idle &&
+			    uc_min <= arch_scale_min_freq_capacity(cpu) &&
+			    !cass_prime_cpu(curr)) {
+				/* Discard any previous non-idle candidate */
+				best = curr;
+				has_idle = true;
+			}
+#endif
 
 			/* Nonzero exit latency indicates this CPU is idle */
 			curr->exit_lat = 1;
@@ -207,7 +289,6 @@ static int cass_best_cpu(struct task_struct *p, int prev_cpu, bool sync, bool rt
 		}
 
 		/* Get this CPU's capacity and utilization */
-		curr->cpu = cpu;
 		cass_cpu_util(curr, this_cpu, sync);
 
 		/*
@@ -245,7 +326,7 @@ static int cass_best_cpu(struct task_struct *p, int prev_cpu, bool sync, bool rt
 		 * disproportionate P-states.
 		 */
 		curr->util =
-			curr->util * SCHED_CAPACITY_SCALE / curr->cap;
+			curr->util * SCHED_CAPACITY_SCALE / curr->cap_no_therm;
 
 		/*
 		 * Check if this CPU is better than the best CPU found so far.
@@ -254,7 +335,7 @@ static int cass_best_cpu(struct task_struct *p, int prev_cpu, bool sync, bool rt
 		 */
 		if (best == curr ||
 		    cass_cpu_better(curr, best, p_util, this_cpu, prev_cpu,
-				    sync)) {
+				    prev_llc_id, sync)) {
 			best = curr;
 			cidx ^= 1;
 		}
@@ -265,19 +346,23 @@ static int cass_best_cpu(struct task_struct *p, int prev_cpu, bool sync, bool rt
 
 #ifdef CONFIG_SCHED_WALT
 static int cass_select_task_rq(struct task_struct *p, int prev_cpu, int sd_flag,
-                             int wake_flags, bool rt,
-                             int sibling_count_hint)
+			       int wake_flags, bool rt,
+			       int sibling_count_hint)
 #else
-static int cass_select_task_rq(struct task_struct *p, int prev_cpu, int sd_flag,
-                             int wake_flags, bool rt)
+static int cass_select_task_rq(struct task_struct *p, int prev_cpu,
+			       int wake_flags, bool rt)
 #endif
-
 {
 	bool sync;
 
+#ifdef CONFIG_SCHED_WALT
 	/* Don't balance on exec since we don't know what @p will look like */
 	if (sd_flag & SD_BALANCE_EXEC)
 		return prev_cpu;
+#else
+	if (wake_flags & SD_BALANCE_EXEC)
+		return prev_cpu;
+#endif
 
 	/*
 	 * If there aren't any valid CPUs which are active, then just return the
@@ -288,8 +373,13 @@ static int cass_select_task_rq(struct task_struct *p, int prev_cpu, int sd_flag,
 		return cpumask_first(p->cpus_ptr);
 
 	/* cass_best_cpu() needs the CFS task's utilization, so sync it up */
+#ifdef CONFIG_SCHED_WALT
 	if (!rt && !(sd_flag & SD_BALANCE_FORK))
 		sync_entity_load_avg(&p->se);
+#else
+	if (!rt && !(wake_flags & SD_BALANCE_FORK))
+		sync_entity_load_avg(&p->se);
+#endif
 
 	sync = (wake_flags & WF_SYNC) && !(current->flags & PF_EXITING);
 	return cass_best_cpu(p, prev_cpu, sync, rt);
@@ -297,29 +387,36 @@ static int cass_select_task_rq(struct task_struct *p, int prev_cpu, int sd_flag,
 
 #ifdef CONFIG_SCHED_WALT
 static int cass_select_task_rq_fair(struct task_struct *p, int prev_cpu,
-                                  int sd_flag, int wake_flags,
-								  int sibling_count_hint)
+				    int sd_flag, int wake_flags,
+				    int sibling_count_hint)
 {
-    return cass_select_task_rq(p, prev_cpu, sd_flag, wake_flags, sibling_count_hint, false);
+	return cass_select_task_rq(p, prev_cpu, sd_flag, wake_flags, false, sibling_count_hint);
 }
 
 int cass_select_task_rq_rt(struct task_struct *p, int prev_cpu,
-                         int sd_flag, int wake_flags,
-						 int sibling_count_hint)
+			   int sd_flag, int wake_flags,
+			   int sibling_count_hint)
 {
-    return cass_select_task_rq(p, prev_cpu, sd_flag, wake_flags, sibling_count_hint, true);
+	return cass_select_task_rq(p, prev_cpu, sd_flag, wake_flags, true, sibling_count_hint);
 }
 #else
 static int cass_select_task_rq_fair(struct task_struct *p, int prev_cpu,
-                                  int sd_flag, int wake_flags)
+				    int wake_flags)
 {
-    return cass_select_task_rq(p, prev_cpu, sd_flag, wake_flags, false);
+	return cass_select_task_rq(p, prev_cpu, wake_flags, false);
 }
 
-int cass_select_task_rq_rt(struct task_struct *p, int prev_cpu,
-                         int sd_flag, int wake_flags,
-						 int sibling_count_hint)
+int cass_select_task_rq_rt(struct task_struct *p, int prev_cpu, int wake_flags)
 {
-    return cass_select_task_rq(p, prev_cpu, sd_flag, wake_flags, true);
+	return cass_select_task_rq(p, prev_cpu, wake_flags, true);
 }
 #endif
+
+// Add logging info
+static int __init cass_init_info(void)
+{
+	printk(KERN_INFO "CASS: Capacity Aware Superset Scheduler Support\n");
+	return 0;
+}
+late_initcall(cass_init_info);
+

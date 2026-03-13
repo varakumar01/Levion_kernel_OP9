@@ -12318,7 +12318,12 @@ static inline void *select_task_rq_fair_dummy(void)
 {
 	return (void *)select_task_rq_fair;
 }
+
+#ifdef CONFIG_SCHED_WALT
 #define select_task_rq_fair cass_select_task_rq_fair
+#else
+#define select_task_rq_fair cass_select_task_rq_fair
+#endif
 #endif /* CONFIG_SCHED_CASS */
 
 /*
