@@ -4579,17 +4579,14 @@ int hdd_stop_no_trans(struct net_device *dev)
 	 * in injection/scanning tools. Ignore those requests.
 	 */
 	if (hdd_get_conparam() == QDF_GLOBAL_MONITOR_MODE &&
-	    !uid_eq(current_euid(), GLOBAL_ROOT_UID) &&
 	    (wlan_hdd_is_session_type_monitor(adapter->device_mode) ||
 	     dev->type == ARPHRD_IEEE80211_RADIOTAP)) {
-		hdd_warn_rl("Ignoring monitor ifdown from %s", current->comm);
-		return 0;
-	}
-
-	if (hdd_get_conparam() == QDF_GLOBAL_MONITOR_MODE &&
-	    (wlan_hdd_is_session_type_monitor(adapter->device_mode) ||
-	     dev->type == ARPHRD_IEEE80211_RADIOTAP)) {
-		hdd_warn_rl("monitor ifdown request accepted from %s", current->comm);
+		if (!uid_eq(current_euid(), GLOBAL_ROOT_UID)) {
+			hdd_warn_rl("Ignoring monitor ifdown from %s", current->comm);
+			return 0;
+		} else {
+			hdd_warn_rl("Monitor ifdown request accepted from %s", current->comm);
+		}
 	}
 
 	/* Nothing to be done if the interface is not opened */
@@ -4648,6 +4645,11 @@ int hdd_stop_no_trans(struct net_device *dev)
 	 * That is intentional to be able to scan if it is a STA/P2P interface
 	 */
 	hdd_stop_adapter(hdd_ctx, adapter);
+
+	/* Cleanup frame injection state in WMA before stopping the interface */
+	tp_wma_handle wma = cds_get_context(QDF_MODULE_ID_WMA);
+	if (wma)
+		wma_injection_pre_stop_cleanup(wma);
 
 	/* DeInit the adapter. This ensures datapath cleanup as well */
 	hdd_deinit_adapter(hdd_ctx, adapter, true);
