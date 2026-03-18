@@ -4562,6 +4562,7 @@ int hdd_stop_no_trans(struct net_device *dev)
 	struct hdd_context *hdd_ctx = WLAN_HDD_GET_CTX(adapter);
 	int ret;
 	mac_handle_t mac_handle;
+	tp_wma_handle wma;
 
 	hdd_enter_dev(dev);
 
@@ -4647,7 +4648,7 @@ int hdd_stop_no_trans(struct net_device *dev)
 	hdd_stop_adapter(hdd_ctx, adapter);
 
 	/* Cleanup frame injection state in WMA before stopping the interface */
-	tp_wma_handle wma = cds_get_context(QDF_MODULE_ID_WMA);
+	wma = cds_get_context(QDF_MODULE_ID_WMA);
 	if (wma)
 		wma_injection_pre_stop_cleanup(wma);
 
