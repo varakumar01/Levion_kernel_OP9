@@ -5434,12 +5434,25 @@ static const struct net_device_ops wlan_drv_ops = {
 };
 
 #ifdef FEATURE_MONITOR_MODE_SUPPORT
-/* Monitor mode net_device_ops, doesnot Tx and most of operations. */
+/*
+ * Monitor mode net_device_ops.
+ *
+ * Includes ioctl handlers so that SIOCDEVPRIVATE_FRAME_INJECT works on
+ * monitor interfaces, and ndo_set_mac_address for MAC spoofing which is
+ * commonly used alongside monitor mode injection tools.
+ */
 static const struct net_device_ops wlan_mon_drv_ops = {
 	.ndo_open = hdd_mon_open,
 	.ndo_stop = hdd_stop,
 	.ndo_start_xmit = hdd_hard_start_xmit,
 	.ndo_get_stats = hdd_get_stats,
+	.ndo_set_mac_address = hdd_set_mac_address,
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 15, 0)
+	.ndo_do_ioctl = hdd_ioctl,
+#endif
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 15, 0)
+	.ndo_siocdevprivate = hdd_dev_private_ioctl,
+#endif
 };
 
 /**

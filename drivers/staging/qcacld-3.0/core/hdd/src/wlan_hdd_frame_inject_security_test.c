@@ -180,7 +180,7 @@ QDF_STATUS hdd_test_capability_checking(struct hdd_adapter *adapter)
 
 		/* This should trigger audit logging */
 		status = hdd_validate_injection_permissions(adapter, &test_req);
-		
+
 		/* Check if audit log was generated (we can't easily verify the log content,
 		 * but we can check that the function behaved correctly) */
 		if (status == QDF_STATUS_E_PERM) {
@@ -331,7 +331,7 @@ QDF_STATUS hdd_test_rate_limiting_attack_scenarios(struct hdd_adapter *adapter)
 
 		/* Wait for next time window */
 		qdf_sleep(security_ctx->config.rate_window_ms + 100);
-		
+
 		/* Reset for next window */
 		security_ctx->current_rate_count = 0;
 		security_ctx->rate_limit_start_time = qdf_get_log_timestamp();
@@ -570,7 +570,7 @@ QDF_STATUS hdd_test_audit_logging_completeness(struct hdd_adapter *adapter)
 
 	/* Test that log entries contain accurate process and frame information */
 	/* This is more of a functional test since we can't easily inspect log contents */
-	
+
 	test_req.session_id = 50003;
 	test_req.timestamp = qdf_get_log_timestamp();
 	test_req.frame_len = 100; /* Specific frame length for testing */

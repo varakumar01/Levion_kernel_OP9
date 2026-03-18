@@ -31,6 +31,7 @@
 #include <qdf_mem.h>
 #include <qdf_trace.h>
 #include <qdf_time.h>
+#include <qdf_mc_timer.h>
 
 #ifdef FEATURE_FRAME_INJECTION_SUPPORT
 
@@ -70,7 +71,7 @@ struct injection_session {
  */
 static uint64_t hdd_get_current_time_ms(void)
 {
-	return qdf_get_log_timestamp();
+	return (uint64_t)qdf_get_time_of_the_day_ms();
 }
 
 /**
@@ -137,19 +138,19 @@ QDF_STATUS hdd_deinit_injection_security_ctx(struct injection_security_ctx *secu
 
 	/* Clean up active sessions */
 	qdf_spin_lock_bh(&security_ctx->session_lock);
-	
+
 	status = qdf_list_peek_front(&security_ctx->active_sessions, &node);
 	while (QDF_IS_STATUS_SUCCESS(status)) {
 		session = qdf_container_of(node, struct injection_session, node);
-		
+
 		status = qdf_list_peek_next(&security_ctx->active_sessions, node, &next_node);
-		
+
 		qdf_list_remove_node(&security_ctx->active_sessions, node);
 		qdf_mem_free(session);
-		
+
 		node = next_node;
 	}
-	
+
 	qdf_spin_unlock_bh(&security_ctx->session_lock);
 
 	/* Destroy session list and lock */
@@ -192,7 +193,7 @@ QDF_STATUS hdd_check_injection_capability(struct task_struct *task)
 
 	/* Check for CAP_NET_RAW capability */
 	has_capability = capable(CAP_NET_RAW);
-	
+
 	put_cred(cred);
 
 	if (!has_capability) {
@@ -270,19 +271,19 @@ static struct injection_session *hdd_find_injection_session(
 	QDF_STATUS status;
 
 	qdf_spin_lock_bh(&security_ctx->session_lock);
-	
+
 	status = qdf_list_peek_front(&security_ctx->active_sessions, &node);
 	while (QDF_IS_STATUS_SUCCESS(status)) {
 		session = qdf_container_of(node, struct injection_session, node);
-		
+
 		if (session->session_id == session_id) {
 			qdf_spin_unlock_bh(&security_ctx->session_lock);
 			return session;
 		}
-		
+
 		status = qdf_list_peek_next(&security_ctx->active_sessions, node, &node);
 	}
-	
+
 	qdf_spin_unlock_bh(&security_ctx->session_lock);
 	return NULL;
 }
@@ -309,6 +310,12 @@ QDF_STATUS hdd_apply_injection_rate_limit(struct hdd_adapter *adapter)
 
 	security_ctx = &adapter->injection_ctx->security_ctx;
 	current_time = hdd_get_current_time_ms();
+
+	/*
+	 * Refresh rate limit params from global sysfs-configurable values
+	 * so that runtime changes via sysfs take effect immediately.
+	 */
+	hdd_injection_get_global_config(&security_ctx->config);
 	max_rate = security_ctx->config.max_frame_rate;
 	window_ms = security_ctx->config.rate_window_ms;
 

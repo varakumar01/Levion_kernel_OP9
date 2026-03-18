@@ -7594,7 +7594,7 @@ static int __hdd_ioctl(struct net_device *dev, struct ifreq *ifr, int cmd)
 		goto exit;
 
 	hdd_info("Received ioctl command: 0x%x", cmd);
-	
+
 	switch (cmd) {
 	case (SIOCDEVPRIVATE + 1):
 		hdd_info("Processing SIOCDEVPRIVATE+1 ioctl");
@@ -7605,9 +7605,38 @@ static int __hdd_ioctl(struct net_device *dev, struct ifreq *ifr, int cmd)
 		break;
 #ifdef FEATURE_FRAME_INJECTION_SUPPORT
 	case SIOCDEVPRIVATE_FRAME_INJECT:
+	{
+		/*
+		 * __hdd_ioctl() receives 'void __user *data' (already
+		 * unwrapped from ifr->ifr_data by the caller hdd_ioctl /
+		 * hdd_dev_private_ioctl).  hdd_frame_inject_ioctl() needs a
+		 * struct ifreq whose ifr_data points at the userspace buffer,
+		 * so reconstruct one on the stack.
+		 */
+		struct ifreq ifr_local;
+
+		/* Clear the local ifreq structure */
+		memset(&ifr_local, 0, sizeof(ifr_local));
+
+		/* Copy the interface name */
+		strlcpy(ifr_local.ifr_name, dev->name,
+			sizeof(ifr_local.ifr_name));
+
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5,15,0)
+		/* Linux 5.15+ : reconstruct using original ifr pointer */
+		ifr_local.ifr_data = (void __force *)ifr->ifr_data;
+#else
+		/* Linux 5.4 : use ifr->ifr_data directly instead of undefined 'data' */
+		ifr_local.ifr_data = (void __force *)ifr->ifr_data;
+#endif
+
+		/* Log ioctl processing */
 		hdd_info("Processing frame injection ioctl: 0x%x", cmd);
-		ret = hdd_frame_inject_ioctl(dev, ifr, cmd);
+
+		/* Call the injection handler with the reconstructed ifreq */
+		ret = hdd_frame_inject_ioctl(dev, &ifr_local, cmd);
 		break;
+	}
 #else
 	case SIOCDEVPRIVATE_FRAME_INJECT:
 		hdd_warn("Frame injection not compiled in");

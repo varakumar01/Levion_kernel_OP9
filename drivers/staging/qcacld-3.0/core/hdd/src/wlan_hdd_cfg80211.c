@@ -159,6 +159,7 @@
 #include "wlan_hdd_cfr.h"
 #ifdef FEATURE_FRAME_INJECTION_SUPPORT
 #include "wlan_hdd_frame_inject.h"
+#include "wma_frame_inject.h"
 #endif
 #include <qdf_hang_event_notifier.h>
 #include "wlan_hdd_ioctl.h"
@@ -25185,6 +25186,23 @@ static int __wlan_hdd_cfg80211_set_mon_ch(struct wiphy *wiphy,
 
 	adapter->mon_chan_freq = chandef->chan->center_freq;
 	adapter->mon_bandwidth = ch_width;
+
+#ifdef FEATURE_FRAME_INJECTION_SUPPORT
+	/*
+	 * Proactively re-tune the injection helper STA vdev to the new
+	 * monitor channel.  Without this, injected frames would briefly
+	 * go out on the old frequency until the next injection attempt
+	 * detects the mismatch and triggers a lazy re-tune.
+	 */
+	{
+		tp_wma_handle wma = cds_get_context(QDF_MODULE_ID_WMA);
+
+		if (wma)
+			wma_injection_notify_channel_change(
+				wma, adapter->vdev_id,
+				chandef->chan->center_freq);
+	}
+#endif
 
 	hdd_exit();
 

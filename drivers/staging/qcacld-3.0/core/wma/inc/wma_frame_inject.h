@@ -154,6 +154,25 @@ QDF_STATUS wma_deinit_injection_queue(tp_wma_handle wma_handle);
 void wma_injection_pre_stop_cleanup(tp_wma_handle wma_handle);
 
 /**
+ * wma_injection_notify_channel_change() - Re-tune injection helper vdev
+ * @wma_handle: WMA handle
+ * @mon_vdev_id: Monitor vdev ID whose channel changed
+ * @new_freq: New channel frequency in MHz
+ *
+ * Proactively re-tunes the hidden injection TX helper vdev to @new_freq
+ * when the monitor channel changes.  Without this, the helper vdev stays
+ * on the old channel until the next injection attempt detects the mismatch,
+ * creating a brief window where injected frames go out on the wrong
+ * frequency or are dropped by firmware.
+ *
+ * Call this from the cfg80211 set_monitor_channel path after the channel
+ * change has been committed to firmware.
+ */
+void wma_injection_notify_channel_change(tp_wma_handle wma_handle,
+					 uint8_t mon_vdev_id,
+					 uint32_t new_freq);
+
+/**
  * wma_queue_injection_frame() - Queue frame for injection
  * @wma_handle: WMA handle
  * @req: Frame injection request
@@ -338,6 +357,12 @@ static inline QDF_STATUS wma_deinit_injection_queue(tp_wma_handle wma_handle)
 }
 
 static inline void wma_injection_pre_stop_cleanup(tp_wma_handle wma_handle)
+{
+}
+
+static inline void wma_injection_notify_channel_change(tp_wma_handle wma_handle,
+						       uint8_t mon_vdev_id,
+						       uint32_t new_freq)
 {
 }
 

@@ -616,7 +616,7 @@ QDF_STATUS hdd_comprehensive_test_suite(struct hdd_context *hdd_ctx)
 	/* Test different load conditions */
 	for (uint32_t load_type = 1; load_type <= 4; load_type++) {
 		hdd_comp_test_info("--- Performance Test %u: Load Type %u ---", load_type, load_type);
-		
+
 		status = hdd_test_performance_under_load(test_adapter, load_type, &perf_stats);
 		if (QDF_IS_STATUS_ERROR(status)) {
 			perf_tests_passed = false;
@@ -640,7 +640,7 @@ QDF_STATUS hdd_comprehensive_test_suite(struct hdd_context *hdd_ctx)
 	/* Major Test Suite 5: Extended Stability Test */
 	hdd_comp_test_info("=== Major Test Suite 5: Extended Stability Test ===");
 	major_test_suites_run++;
-	
+
 	/* Run stability test for 2 minutes (reduced for testing) */
 	status = hdd_test_stability_extended_operation(test_adapter, 2);
 	if (QDF_IS_STATUS_SUCCESS(status)) {

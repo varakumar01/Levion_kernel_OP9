@@ -35,6 +35,10 @@
 #include <qdf_trace.h>
 #include <qdf_nbuf.h>
 #include "wlan_hdd_cfg80211.h"
+#include "cdp_txrx_cmn.h"
+#include "cdp_txrx_flow_ctrl_legacy.h"
+#include "cdp_txrx_misc.h"
+#include "ol_txrx.h"
 
 #ifdef FEATURE_FRAME_INJECTION_SUPPORT
 
@@ -137,7 +141,7 @@ QDF_STATUS hdd_init_frame_injection(struct hdd_adapter *adapter)
 	/* Initialize recovery work and timer */
 	qdf_create_work(0, &injection_ctx->recovery_ctx.recovery_work,
 			hdd_injection_recovery_work, adapter);
-	
+
 	status = qdf_timer_init(NULL, &injection_ctx->recovery_ctx.recovery_timer,
 				hdd_injection_recovery_timer, adapter, QDF_TIMER_TYPE_SW);
 	if (QDF_IS_STATUS_ERROR(status)) {
@@ -207,23 +211,23 @@ QDF_STATUS hdd_deinit_frame_injection(struct hdd_adapter *adapter)
 
 	/* Clean up injection queue */
 	qdf_spin_lock_bh(&injection_ctx->queue_lock);
-	
+
 	status = qdf_list_peek_front(&injection_ctx->injection_queue, &node);
 	while (QDF_IS_STATUS_SUCCESS(status)) {
 		req = qdf_container_of(node, struct inject_frame_req, node);
-		
+
 		status = qdf_list_peek_next(&injection_ctx->injection_queue, node, &next_node);
-		
+
 		qdf_list_remove_node(&injection_ctx->injection_queue, node);
-		
+
 		/* Free frame data */
 		if (req->frame_data)
 			qdf_mem_free(req->frame_data);
 		qdf_mem_free(req);
-		
+
 		node = next_node;
 	}
-	
+
 	qdf_spin_unlock_bh(&injection_ctx->queue_lock);
 
 	/* Cleanup security context */
@@ -321,6 +325,18 @@ static QDF_STATUS hdd_create_injection_request(struct hdd_frame_inject_ioctl *io
 	    ioctl_data->frame_len > HDD_FRAME_INJECT_MAX_SIZE) {
 		hdd_inject_err("Invalid frame length: %u", ioctl_data->frame_len);
 		return QDF_STATUS_E_INVAL;
+	}
+
+	/* Validate userspace frame_data pointer before accessing it */
+	if (!ioctl_data->frame_data) {
+		hdd_inject_err("NULL frame_data pointer from userspace");
+		return QDF_STATUS_E_INVAL;
+	}
+
+	if (!access_ok(ioctl_data->frame_data, ioctl_data->frame_len)) {
+		hdd_inject_err("Invalid userspace frame_data pointer %pK len %u",
+			       ioctl_data->frame_data, ioctl_data->frame_len);
+		return QDF_STATUS_E_FAULT;
 	}
 
 	/* Allocate injection request */
@@ -434,29 +450,48 @@ QDF_STATUS hdd_process_frame_injection(struct hdd_adapter *adapter,
 	}
 
 	/*
-	 * Injection currently transmits via WMI mgmt-tx path, so only 802.11
-	 * management frames are supported on this path.
+	 * Determine 802.11 frame type for routing decisions downstream.
+	 * Management frames  (type 0x00) → WMI mgmt TX path
+	 * Data frames        (type 0x08) → CDP raw data TX path
+	 * Control frames     (type 0x04) → Best-effort via WMI mgmt TX
+	 *
+	 * All three types are accepted for injection.  Tools like
+	 * aireplay-ng inject data frames (ARP replay, chopchop,
+	 * fragmentation) and control frames (RTS for CTS-forcing).
 	 */
 	frame_type = req->frame_data[0] & 0x0c;
-	if (frame_type != 0x00) {
+	switch (frame_type) {
+	case 0x00: /* Management */
+		hdd_inject_debug("Management frame injection: subtype=0x%02x len=%u",
+				 req->frame_data[0] & 0xf0, req->frame_len);
+		break;
+	case 0x08: /* Data */
+		hdd_inject_debug("Data frame injection: subtype=0x%02x len=%u",
+				 req->frame_data[0] & 0xf0, req->frame_len);
+		break;
+	case 0x04: /* Control */
+		hdd_inject_debug("Control frame injection: subtype=0x%02x len=%u",
+				 req->frame_data[0] & 0xf0, req->frame_len);
+		break;
+	default:
 		hdd_update_injection_stats(adapter, HDD_INJECTION_STAT_VALIDATION_FAILURES, 1);
-		hdd_inject_warn("Dropping non-management injection frame: fc_type=0x%02x len=%u",
+		hdd_inject_warn("Dropping frame with invalid type: fc_type=0x%02x len=%u",
 				frame_type, req->frame_len);
-		return QDF_STATUS_E_NOSUPPORT;
+		return QDF_STATUS_E_INVAL;
 	}
 
 	/* Queue frame for injection */
 	qdf_spin_lock_bh(&injection_ctx->queue_lock);
-	
+
 	/* Check queue size limit */
-	if (qdf_list_size(&injection_ctx->injection_queue) >= 
+	if (qdf_list_size(&injection_ctx->injection_queue) >=
 	    injection_ctx->security_ctx.config.max_queue_size) {
 		qdf_spin_unlock_bh(&injection_ctx->queue_lock);
 		hdd_update_injection_stats(adapter, HDD_INJECTION_STAT_QUEUE_OVERFLOWS, 1);
 		hdd_inject_warn("Injection queue is full");
 		return QDF_STATUS_E_RESOURCES;
 	}
-	
+
 	status = qdf_list_insert_back(&injection_ctx->injection_queue, &req->node);
 	qdf_spin_unlock_bh(&injection_ctx->queue_lock);
 
@@ -554,14 +589,14 @@ int hdd_frame_inject_ioctl(struct net_device *dev, struct ifreq *ifr, int cmd)
 	status = hdd_process_frame_injection(adapter, req);
 	if (QDF_IS_STATUS_ERROR(status)) {
 		hdd_inject_err("Failed to process injection request: %d", status);
-		
+
 		/* Cleanup on failure */
 		if (req) {
 			if (req->frame_data)
 				qdf_mem_free(req->frame_data);
 			qdf_mem_free(req);
 		}
-		
+
 		return qdf_status_to_os_return(status);
 	}
 
@@ -667,9 +702,76 @@ void hdd_process_injection_queue_work(void *arg)
 				}
 			}
 
-			wma_status = wma_queue_injection_frame(
-				(tp_wma_handle)injection_ctx->wma_handle, req,
-				tx_vdev_id);
+			wma_status = QDF_STATUS_E_FAILURE;
+
+			/*
+			 * Route frames based on 802.11 type:
+			 *
+			 * Management (0x00): WMI mgmt TX via WMA queue
+			 *   - Uses helper STA vdev for monitor mode
+			 *   - Firmware handles rate control and retries
+			 *
+			 * Data (0x08): CDP raw non-standard TX
+			 *   - Goes through the data path directly
+			 *   - Required for aireplay-ng ARP replay,
+			 *     chopchop, fragmentation attacks
+			 *
+			 * Control (0x04): Best-effort via WMI mgmt TX
+			 *   - Most firmware won't actually TX pure control
+			 *     frames but will accept the WMI command
+			 *   - RTS injection for CTS-forcing may work
+			 *     depending on firmware build
+			 */
+			{
+				uint8_t fc_type = req->frame_data[0] & 0x0c;
+
+				if (fc_type == 0x08) {
+					/* Data frame: use CDP raw TX path */
+					qdf_nbuf_t nbuf;
+					void *data_soc;
+
+					data_soc = cds_get_context(QDF_MODULE_ID_SOC);
+					if (!data_soc) {
+						hdd_inject_err("CDP SOC not available for data TX");
+						wma_status = QDF_STATUS_E_FAILURE;
+						goto inject_done;
+					}
+
+					nbuf = qdf_nbuf_alloc(NULL, req->frame_len, 0, 0, false);
+					if (!nbuf) {
+						hdd_inject_err("Failed to alloc nbuf for data injection");
+						wma_status = QDF_STATUS_E_NOMEM;
+						goto inject_done;
+					}
+
+					qdf_mem_copy(qdf_nbuf_put_tail(nbuf, req->frame_len),
+						     req->frame_data, req->frame_len);
+
+					/*
+					 * cdp_tx_non_std sends a raw 802.11 frame through
+					 * the firmware data path.  OL_TX_SPEC_RAW tells the
+					 * datapath to transmit the buffer as-is without
+					 * 802.3→802.11 encapsulation.
+					 */
+					if (cdp_tx_non_std(data_soc, tx_vdev_id,
+							   OL_TX_SPEC_RAW, nbuf) != NULL) {
+						/* nbuf was not consumed — TX failed */
+						qdf_nbuf_free(nbuf);
+						hdd_inject_err("CDP raw data TX rejected for vdev %u",
+							       tx_vdev_id);
+						wma_status = QDF_STATUS_E_FAILURE;
+					} else {
+						/* nbuf consumed by CDP — success */
+						wma_status = QDF_STATUS_SUCCESS;
+					}
+				} else {
+					/* Management or control frame: WMI mgmt TX */
+					wma_status = wma_queue_injection_frame(
+						(tp_wma_handle)injection_ctx->wma_handle, req,
+						tx_vdev_id);
+				}
+			}
+inject_done:
 
 			/* Update timing for completion */
 			req->complete_time = qdf_get_log_timestamp();
@@ -826,11 +928,11 @@ int hdd_frame_inject_netlink(struct wiphy *wiphy, struct wireless_dev *wdev,
 	status = hdd_process_frame_injection(adapter, req);
 	if (QDF_IS_STATUS_ERROR(status)) {
 		hdd_inject_err("Failed to process injection request: %d", status);
-		
+
 		/* Cleanup on failure */
 		qdf_mem_free(frame_data);
 		qdf_mem_free(req);
-		
+
 		return qdf_status_to_os_return(status);
 	}
 
@@ -1162,27 +1264,27 @@ QDF_STATUS hdd_reset_injection_state(struct hdd_adapter *adapter)
 
 	/* Clear injection queue if it has stale entries */
 	qdf_spin_lock_bh(&injection_ctx->queue_lock);
-	
+
 	status = qdf_list_peek_front(&injection_ctx->injection_queue, &node);
 	while (QDF_IS_STATUS_SUCCESS(status)) {
 		req = qdf_container_of(node, struct inject_frame_req, node);
-		
+
 		/* Check if request is too old (older than 5 seconds) */
 		if ((qdf_get_log_timestamp() - req->timestamp) > 5000000) {
 			status = qdf_list_peek_next(&injection_ctx->injection_queue, node, &next_node);
 			qdf_list_remove_node(&injection_ctx->injection_queue, node);
-			
+
 			if (req->frame_data)
 				qdf_mem_free(req->frame_data);
 			qdf_mem_free(req);
-			
+
 			node = next_node;
 		} else {
 			status = qdf_list_peek_next(&injection_ctx->injection_queue, node, &next_node);
 			node = next_node;
 		}
 	}
-	
+
 	qdf_spin_unlock_bh(&injection_ctx->queue_lock);
 
 	hdd_inject_info("Injection state reset completed for adapter %pK", adapter);
@@ -1287,7 +1389,7 @@ QDF_STATUS hdd_handle_injection_degradation(struct hdd_adapter *adapter,
 	switch (resource_type) {
 	case 1: /* Queue pressure */
 		hdd_inject_warn("Queue pressure detected, reducing queue size");
-		
+
 		/* Reduce queue size by 50% */
 		config->max_queue_size = config->max_queue_size / 2;
 		if (config->max_queue_size < 8) {
@@ -1316,7 +1418,7 @@ QDF_STATUS hdd_handle_injection_degradation(struct hdd_adapter *adapter,
 
 	case 2: /* Memory pressure */
 		hdd_inject_warn("Memory pressure detected, reducing frame rate");
-		
+
 		/* Reduce frame rate by 50% */
 		config->max_frame_rate = config->max_frame_rate / 2;
 		if (config->max_frame_rate < 10) {
@@ -1326,20 +1428,20 @@ QDF_STATUS hdd_handle_injection_degradation(struct hdd_adapter *adapter,
 		/* Clear current rate limiting window to apply new rate immediately */
 		injection_ctx->security_ctx.current_rate_count = 0;
 		injection_ctx->security_ctx.rate_limit_start_time = qdf_get_log_timestamp();
-		
+
 		hdd_inject_info("Reduced frame rate to %u fps due to memory pressure",
 				config->max_frame_rate);
 		break;
 
 	case 3: /* CPU pressure */
 		hdd_inject_warn("CPU pressure detected, increasing rate window");
-		
+
 		/* Increase rate limiting window to reduce CPU load */
 		config->rate_window_ms = config->rate_window_ms * 2;
 		if (config->rate_window_ms > 10000) {
 			config->rate_window_ms = 10000; /* Maximum 10 second window */
 		}
-		
+
 		hdd_inject_info("Increased rate window to %u ms due to CPU pressure",
 				config->rate_window_ms);
 		break;
@@ -1380,7 +1482,7 @@ void hdd_injection_recovery_work(void *arg)
 	switch (recovery_ctx->last_error.error_type) {
 	case HDD_INJECTION_ERROR_FIRMWARE:
 		hdd_inject_info("Performing firmware error recovery");
-		
+
 		/* Reset injection state */
 		status = hdd_reset_injection_state(adapter);
 		if (QDF_IS_STATUS_ERROR(status)) {
@@ -1407,7 +1509,7 @@ void hdd_injection_recovery_work(void *arg)
 
 	/* Clear recovery in progress flag */
 	recovery_ctx->recovery_in_progress = false;
-	
+
 	if (recovery_ctx->consecutive_errors > 10) {
 		hdd_inject_warn("Too many consecutive errors (%u), disabling injection",
 				recovery_ctx->consecutive_errors);
@@ -1445,7 +1547,7 @@ void hdd_injection_recovery_timer(void *arg)
 	/* Check if recovery is still in progress */
 	if (recovery_ctx->recovery_in_progress) {
 		uint64_t recovery_duration = qdf_get_log_timestamp() - recovery_ctx->recovery_start_time;
-		
+
 		hdd_inject_warn("Recovery timeout after %llu ms, forcing reset",
 				recovery_duration / 1000);
 
@@ -1504,7 +1606,7 @@ QDF_STATUS hdd_get_injection_stats(struct hdd_adapter *adapter,
 			stats->frames_dropped += wma_stats.frames_dropped;
 			stats->queue_overflows += wma_stats.queue_overflows;
 			stats->firmware_errors += wma_stats.fw_errors;
-			
+
 			/* Update timing statistics */
 			if (wma_stats.frames_processed > 0) {
 				stats->total_inject_time += wma_stats.total_queue_time;
@@ -1701,9 +1803,7 @@ QDF_STATUS hdd_update_injection_throughput(struct hdd_adapter *adapter)
 	struct hdd_injection_ctx *injection_ctx;
 	struct injection_stats *stats;
 	uint64_t current_time;
-	uint64_t time_window_ms = 1000; /* 1 second window */
-	static uint64_t last_throughput_update = 0;
-	static uint64_t frames_in_window = 0;
+	uint64_t time_window_us = 1000000; /* 1 second in microseconds */
 
 	if (!adapter) {
 		hdd_inject_err("Invalid adapter parameter");
@@ -1720,29 +1820,30 @@ QDF_STATUS hdd_update_injection_throughput(struct hdd_adapter *adapter)
 	current_time = qdf_get_log_timestamp();
 
 	/* Initialize on first call */
-	if (last_throughput_update == 0) {
-		last_throughput_update = current_time;
-		frames_in_window = 1;
+	if (stats->throughput_window_start == 0) {
+		stats->throughput_window_start = current_time;
+		stats->throughput_frames_in_window = 1;
 		return QDF_STATUS_SUCCESS;
 	}
 
-	frames_in_window++;
+	stats->throughput_frames_in_window++;
 
 	/* Calculate throughput every second */
-	if (current_time - last_throughput_update >= time_window_ms * 1000) {
-		uint32_t throughput_fps = (frames_in_window * 1000000) / 
-					  (current_time - last_throughput_update);
-		
+	if (current_time - stats->throughput_window_start >= time_window_us) {
+		uint32_t throughput_fps =
+			(stats->throughput_frames_in_window * 1000000) /
+			(current_time - stats->throughput_window_start);
+
 		stats->current_throughput_fps = throughput_fps;
-		
+
 		/* Update peak throughput */
 		if (throughput_fps > stats->peak_throughput_fps) {
 			stats->peak_throughput_fps = throughput_fps;
 		}
 
 		/* Reset for next window */
-		last_throughput_update = current_time;
-		frames_in_window = 0;
+		stats->throughput_window_start = current_time;
+		stats->throughput_frames_in_window = 0;
 	}
 
 	return QDF_STATUS_SUCCESS;

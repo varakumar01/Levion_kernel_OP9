@@ -238,6 +238,9 @@ struct injection_stats {
 	uint32_t cpu_usage_percent;
 	uint64_t queue_depth_samples;
 	uint32_t max_queue_depth;
+	/* Per-adapter throughput tracking (not file-static) */
+	uint64_t throughput_window_start;
+	uint64_t throughput_frames_in_window;
 };
 
 /**
@@ -377,7 +380,7 @@ struct hdd_injection_ctx {
 struct hdd_frame_inject_ioctl {
 	uint32_t cmd;
 	uint32_t frame_len;
-	uint8_t *frame_data;
+	uint8_t __user *frame_data;
 	uint32_t tx_flags;
 	uint8_t retry_count;
 	uint32_t tx_rate;

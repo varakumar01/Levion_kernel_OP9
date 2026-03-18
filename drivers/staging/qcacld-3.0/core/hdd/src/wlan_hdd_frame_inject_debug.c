@@ -347,7 +347,7 @@ static ssize_t hdd_injection_sysfs_global_enable_store(struct kobject *kobj,
 
 	g_injection_global_enable = enable;
 	pr_info("Frame injection global enable set to: %s\n", enable ? "true" : "false");
-	
+
 	return count;
 }
 

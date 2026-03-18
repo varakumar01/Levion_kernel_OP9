@@ -78,7 +78,7 @@ static bool hdd_injection_test_assert(bool condition, const char *test_name,
 				       const char *description)
 {
 	g_test_stats.assertions_checked++;
-	
+
 	if (condition) {
 		hdd_test_info("%s: PASS - %s", test_name, description);
 		return true;
@@ -418,7 +418,7 @@ static bool hdd_injection_test_concurrent_operations(struct hdd_adapter *adapter
 	/* Test that injection context can handle multiple requests */
 	if (req1 && req2) {
 		req2->session_id = 2; /* Different session ID */
-		
+
 		/* These might fail due to missing validation functions, but should not crash */
 		status = hdd_process_frame_injection(adapter, req1);
 		test_passed &= hdd_injection_test_assert(status != QDF_STATUS_E_NULL_VALUE,

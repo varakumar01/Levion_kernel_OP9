@@ -190,8 +190,8 @@ static QDF_STATUS hdd_validate_mgmt_frame(uint8_t *frame_data,
 		if (frame_len >= min_size) {
 			/* Validate beacon interval (should be reasonable) */
 			uint16_t beacon_interval = *(uint16_t *)(payload + 8);
-			if (beacon_interval == 0 || beacon_interval > 65535) {
-				hdd_validate_warn("Invalid beacon interval: %u", beacon_interval);
+			if (beacon_interval == 0 || beacon_interval > 10000) {
+				hdd_validate_warn("Invalid beacon interval: %u TU", beacon_interval);
 			}
 		}
 		break;
@@ -453,22 +453,22 @@ static QDF_STATUS hdd_validate_data_frame(uint8_t *frame_data,
 		uint32_t qos_offset = sizeof(struct ieee80211_frame);
 		if (has_addr4)
 			qos_offset += QDF_MAC_ADDR_SIZE;
-		
+
 		if (frame_len > qos_offset + 1) {
 			qos_ptr = frame_data + qos_offset;
 			tid = qos_ptr[0] & IEEE80211_QOS_TID;
 			ack_policy = (qos_ptr[0] >> IEEE80211_QOS_ACKPOLICY_S) & 0x03;
-			
+
 			/* Validate TID */
 			if (tid > 15) {
 				hdd_validate_warn("Invalid QoS TID: %u", tid);
 			}
-			
+
 			/* Validate ACK policy */
 			if (ack_policy > 3) {
 				hdd_validate_warn("Invalid QoS ACK policy: %u", ack_policy);
 			}
-			
+
 			/* Check A-MSDU bit */
 			if (qos_ptr[0] & IEEE80211_QOS_AMSDU) {
 				hdd_validate_debug("A-MSDU frame detected");
@@ -505,11 +505,11 @@ static QDF_STATUS hdd_validate_data_frame(uint8_t *frame_data,
 	seq_ctrl = *(uint16_t *)frame->i_seq;
 	seq_num = (seq_ctrl & IEEE80211_SEQ_SEQ_MASK) >> IEEE80211_SEQ_SEQ_SHIFT;
 	frag_num = seq_ctrl & IEEE80211_SEQ_FRAG_MASK;
-	
+
 	if (seq_num >= IEEE80211_SEQ_MAX) {
 		hdd_validate_warn("Invalid sequence number: %u", seq_num);
 	}
-	
+
 	if (frag_num > 15) {
 		hdd_validate_warn("Invalid fragment number: %u", frag_num);
 	}
@@ -654,9 +654,18 @@ QDF_STATUS hdd_sanitize_frame_content(uint8_t *frame_data, uint32_t frame_len)
 	frame_type = frame->i_fc[0] & IEEE80211_FC0_TYPE_MASK;
 	frame_subtype = frame->i_fc[0] & IEEE80211_FC0_SUBTYPE_MASK;
 
-	/* Clear reserved bits in frame control */
-	frame->i_fc[0] &= ~0x03; /* Clear version bits (should be 00) */
-	frame->i_fc[1] &= ~0x40; /* Clear reserved bit */
+	/*
+	 * Sanitize frame control field.
+	 *
+	 * FC byte 0 bits [1:0] = Protocol Version (must be 0 for 802.11).
+	 * Already validated by hdd_validate_frame_header(), but enforce here
+	 * as a safety net.
+	 *
+	 * FC byte 1 bit 6 = Order bit.  This is NOT reserved — it indicates
+	 * the presence of the HT Control field (+HTC) in 802.11n/ac/ax QoS
+	 * data and management frames.  Do NOT clear it.
+	 */
+	frame->i_fc[0] &= ~0x03; /* Force protocol version to 0 */
 
 	/* Sanitize based on frame type */
 	switch (frame_type) {
