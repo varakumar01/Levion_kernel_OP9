@@ -39,6 +39,7 @@
 #include "qdf_nbuf.h"
 #include "qdf_delayed_work.h"
 #include "qdf_time.h"
+#include "qdf_threads.h"
 #include "cds_api.h"
 #include "cdp_txrx_cmn.h"
 #include <wlan_vdev_mgr_tgt_if_tx_defs.h>
@@ -313,7 +314,7 @@ wma_injection_ensure_tx_vdev(tp_wma_handle wma,
 			wmi_unified_vdev_set_param_send(wma->wmi_handle, &vp);
 
 			g_inj_tx_vdev.chanfreq = chanfreq;
-		qdf_mdelay(15);
+		qdf_sleep(15);
 			return QDF_STATUS_SUCCESS;
 		}
 
@@ -392,7 +393,7 @@ wma_injection_ensure_tx_vdev(tp_wma_handle wma,
 	 * done and firmware asserts in wlan_vdev_find_vdev.
 	 */
 
-	qdf_mdelay(15);
+	qdf_sleep(15);
 
 	/* ---------- 2. VDEV START (20 MHz basic mode) ---------- */
 	qdf_mem_zero(&vstart, sizeof(vstart));
@@ -413,7 +414,7 @@ wma_injection_ensure_tx_vdev(tp_wma_handle wma,
 		goto err_stop;
 	}
 
-	qdf_mdelay(15);
+	qdf_sleep(15);
 
 	/* ---------- 3. PEER CREATE (self-peer → fw vdev+0xc) ---------- */
 	qdf_mem_zero(&pcreate, sizeof(pcreate));
@@ -427,7 +428,7 @@ wma_injection_ensure_tx_vdev(tp_wma_handle wma,
 		goto err_stop;
 	}
 
-	qdf_mdelay(10);
+	qdf_sleep(10);
 
 	/*
 	 * Skip VDEV_UP.  For STA vdevs, firmware's wlan_vdev_up
@@ -476,17 +477,17 @@ static void wma_injection_destroy_tx_vdev(tp_wma_handle wma)
 	wmi_unified_peer_delete_send(wma->wmi_handle,
 				     g_inj_tx_vdev.mac_addr,
 				     g_inj_tx_vdev.vdev_id);
-	qdf_mdelay(10);
+	qdf_sleep(10);
 
 	/* 2. VDEV_STOP (we did VDEV_START during create) */
 	wmi_unified_vdev_stop_send(wma->wmi_handle,
 				   g_inj_tx_vdev.vdev_id);
-	qdf_mdelay(10);
+	qdf_sleep(10);
 
 	/* 3. VDEV_DELETE */
 	wmi_unified_vdev_delete_send(wma->wmi_handle,
 				     g_inj_tx_vdev.vdev_id);
-	qdf_mdelay(10);
+	qdf_sleep(10);
 
 	wma_info("Injection TX helper vdev destroyed: vdev_id=%u",
 		 g_inj_tx_vdev.vdev_id);
@@ -531,17 +532,17 @@ void wma_injection_pre_stop_cleanup(tp_wma_handle wma_handle)
 	wmi_unified_peer_delete_send(wma_handle->wmi_handle,
 				     g_inj_tx_vdev.mac_addr,
 				     g_inj_tx_vdev.vdev_id);
-	qdf_mdelay(10);
+	qdf_sleep(10);
 
 	/* 2. VDEV_STOP (we did VDEV_START during create) */
 	wmi_unified_vdev_stop_send(wma_handle->wmi_handle,
 				   g_inj_tx_vdev.vdev_id);
-	qdf_mdelay(10);
+	qdf_sleep(10);
 
 	/* 3. VDEV_DELETE */
 	wmi_unified_vdev_delete_send(wma_handle->wmi_handle,
 				     g_inj_tx_vdev.vdev_id);
-	qdf_mdelay(10);
+	qdf_sleep(10);
 
 	wma_info("Pre-stop cleanup: injection helper vdev destroyed: vdev_id=%u",
 		 g_inj_tx_vdev.vdev_id);
