@@ -4445,6 +4445,17 @@ static void hdd_populate_wifi_pos_cfg(struct hdd_context *hdd_ctx)
 }
 #endif
 
+/** Asynchronous Wi-Fi adapter "defrost": clears FROZEN and opens the interface **/
+static void hdd_defrost_worker(struct work_struct *work)
+{
+	struct hdd_adapter *adapter = container_of(work, struct hdd_adapter, defrost_work);
+
+	hdd_err("WLAN: Async defrosting in progress...");
+	clear_bit(DEVICE_IFACE_FROZEN, &adapter->event_flags);
+	set_bit(DEVICE_IFACE_OPENED, &adapter->event_flags);
+	qdf_atomic_set(&adapter->defrost_scheduled, 0);
+}
+
 /**
  * __hdd_open() - HDD Open function
  * @dev:	Pointer to net_device structure
@@ -4474,6 +4485,20 @@ static int __hdd_open(struct net_device *dev)
 	if (cds_is_driver_recovering()) {
 		hdd_err("WLAN is currently recovering; Please try again.");
 		return -EBUSY;
+	}
+
+	/* Root can defrost a frozen interface */
+	if (test_bit(DEVICE_IFACE_FROZEN, &adapter->event_flags)) {
+		if (!uid_eq(current_euid(), GLOBAL_ROOT_UID)) {
+			hdd_err("WLAN: Non-root defrost attempt denied");
+			return -EPERM;
+		}
+		if (atomic_xchg((atomic_t *)&adapter->defrost_scheduled, 1))
+			return 0;
+
+		hdd_err("WLAN: Scheduling defrost.");
+		schedule_work(&adapter->defrost_work);
+		return 0;
 	}
 
 	/*
@@ -4596,6 +4621,15 @@ int hdd_stop_no_trans(struct net_device *dev)
 	if (false == test_bit(DEVICE_IFACE_OPENED, &adapter->event_flags)) {
 		hdd_err("NETDEV Interface is not OPENED");
 		return -ENODEV;
+	}
+
+	/* Root can freeze the interface */
+	if (uid_eq(current_euid(), GLOBAL_ROOT_UID)) {
+		hdd_err("Freezing interface.");
+		cancel_work_sync(&adapter->defrost_work);
+		qdf_atomic_set(&adapter->defrost_scheduled, 0);
+		set_bit(DEVICE_IFACE_FROZEN, &adapter->event_flags);
+		return 0;
 	}
 
 	/* Make sure the interface is marked as closed */
@@ -7126,6 +7160,8 @@ struct hdd_adapter *hdd_open_adapter(struct hdd_context *hdd_ctx, uint8_t sessio
 	INIT_WORK(&adapter->scan_block_work, wlan_hdd_cfg80211_scan_block_cb);
 	INIT_WORK(&adapter->sap_stop_bss_work,
 		  hdd_stop_sap_due_to_invalid_channel);
+	qdf_atomic_init(&adapter->defrost_scheduled);
+	INIT_WORK(&adapter->defrost_work, hdd_defrost_worker);
 	qdf_list_create(&adapter->blocked_scan_request_q, WLAN_MAX_SCAN_COUNT);
 	qdf_mutex_create(&adapter->blocked_scan_request_q_lock);
 	qdf_event_create(&adapter->acs_complete_event);

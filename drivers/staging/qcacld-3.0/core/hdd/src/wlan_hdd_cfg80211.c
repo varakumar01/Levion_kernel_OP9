@@ -18469,6 +18469,53 @@ static bool hdd_is_ap_mode(enum QDF_OPMODE mode)
 }
 
 /**
+ * request_hw_sync() - Request hardware mode update
+ * @new_mode: New QDF mode (STA or MONITOR)
+ * This function sets the new value of con_mode and schedules an
+ * asynchronous worker to apply the configuration to the hardware.
+ */
+#define CON_MODE_STA		0
+#define CON_MODE_MONITOR	4
+
+static atomic_t hw_sync_scheduled = ATOMIC_INIT(0);
+static void do_hw_sync_work(struct work_struct *work);
+static DECLARE_WORK(monitor_work, do_hw_sync_work);
+
+static inline void request_hw_sync(enum QDF_OPMODE new_mode)
+{
+	int new_val = (new_mode == QDF_MONITOR_MODE) ?
+			CON_MODE_MONITOR : CON_MODE_STA;
+
+	WRITE_ONCE(con_mode, new_val);
+
+	if (atomic_xchg(&hw_sync_scheduled, 1) == 0)
+		queue_work(system_unbound_wq, &monitor_work);
+}
+
+static void do_hw_sync_work(struct work_struct *work)
+{
+	struct kernel_param kp = {
+		.name = "con_mode",
+		.ops  = &con_mode_ops,
+		.arg  = &con_mode,
+	};
+	char mode_str[16];
+	int val;
+
+	val = READ_ONCE(con_mode);
+	snprintf(mode_str, sizeof(mode_str), "%d", val);
+	pr_info("WLAN: Syncing HW to con_mode '%s'\n", mode_str);
+
+	if (con_mode_ops.set)
+		con_mode_ops.set(mode_str, &kp);
+	else
+		pr_warn("WLAN: con_mode_ops.set is NULL\n");
+
+	if (atomic_xchg(&hw_sync_scheduled, 0) == 1)
+		queue_work(system_unbound_wq, &monitor_work);
+}
+
+/**
  * __wlan_hdd_cfg80211_change_iface() - change interface cfg80211 op
  * @wiphy: Pointer to the wiphy structure
  * @ndev: Pointer to the net device
@@ -18661,6 +18708,7 @@ static int __wlan_hdd_cfg80211_change_iface(struct wiphy *wiphy,
 
 	ndev->ieee80211_ptr->iftype = type;
 	hdd_lpass_notify_mode_change(adapter);
+	request_hw_sync(new_mode);
 err:
 	/* Set bitmask based on updated value */
 	policy_mgr_set_concurrency_mode(hdd_ctx->psoc, adapter->device_mode);
