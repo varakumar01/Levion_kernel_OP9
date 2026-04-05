@@ -292,7 +292,7 @@ uint32_t tx_timer_create_intern_debug(void *pMacGlobal,
 
 #ifdef WLAN_DEBUG
 	/* Store the timer name */
-	strlcpy(timer_ptr->timerName, name_ptr, sizeof(timer_ptr->timerName));
+	strscpy(timer_ptr->timerName, name_ptr, sizeof(timer_ptr->timerName));
 #endif /* Store the timer name, for Debug build only */
 
 	status =
@@ -352,7 +352,7 @@ uint32_t tx_timer_create_intern(void *pMacGlobal, TX_TIMER *timer_ptr,
 
 #ifdef WLAN_DEBUG
 	/* Store the timer name */
-	strlcpy(timer_ptr->timerName, name_ptr, sizeof(timer_ptr->timerName));
+	strscpy(timer_ptr->timerName, name_ptr, sizeof(timer_ptr->timerName));
 #endif /* Store the timer name, for Debug build only */
 
 	status = qdf_mc_timer_init(&timer_ptr->qdf_timer, QDF_TIMER_TYPE_SW,

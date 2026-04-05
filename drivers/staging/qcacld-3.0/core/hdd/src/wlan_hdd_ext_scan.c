@@ -3737,7 +3737,7 @@ hdd_extscan_passpoint_fill_network(struct nlattr *network,
 		hdd_err("attr realm failed");
 		return -EINVAL;
 	}
-	len = nla_strlcpy(nw->realm, tb[id],
+	len = nla_strscpy(nw->realm, tb[id],
 			  WMI_PASSPOINT_REALM_LEN);
 	/* Don't send partial realm to firmware */
 	if (len >= WMI_PASSPOINT_REALM_LEN) {

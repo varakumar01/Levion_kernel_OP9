@@ -1410,7 +1410,7 @@ static void hdd_send_ft_event(struct hdd_adapter *adapter)
 		return;
 
 	/* Sme needs to send the RIC IEs first */
-	str_len = strlcpy(buff, "RIC=", IW_CUSTOM_MAX);
+	str_len = strscpy(buff, "RIC=", IW_CUSTOM_MAX);
 	sme_get_rici_es(mac_handle, adapter->vdev_id,
 			(u8 *) &(buff[str_len]), (IW_CUSTOM_MAX - str_len),
 			&ric_ies_length);
@@ -1423,7 +1423,7 @@ static void hdd_send_ft_event(struct hdd_adapter *adapter)
 
 	/* Sme needs to provide the Auth Resp */
 	qdf_mem_zero(buff, IW_CUSTOM_MAX);
-	str_len = strlcpy(buff, "AUTH=", IW_CUSTOM_MAX);
+	str_len = strscpy(buff, "AUTH=", IW_CUSTOM_MAX);
 	sme_get_ft_pre_auth_response(mac_handle, adapter->vdev_id,
 				     (u8 *) &buff[str_len],
 				     (IW_CUSTOM_MAX - str_len), &auth_resp_len);
@@ -1534,7 +1534,7 @@ hdd_send_update_beacon_ies_event(struct hdd_adapter *adapter,
 	if (!buff)
 		return;
 
-	strLen = strlcpy(buff, "BEACONIEs=", IW_CUSTOM_MAX);
+	strLen = strscpy(buff, "BEACONIEs=", IW_CUSTOM_MAX);
 	currentLen = strLen + 1;
 
 	totalIeLen = roam_info->nBeaconLength - BEACON_FRAME_IES_OFFSET;

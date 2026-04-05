@@ -515,7 +515,7 @@ int pld_snoc_get_soc_info(struct device *dev, struct pld_soc_info *info)
 	info->board_id = icnss_info.board_id;
 	info->soc_id = icnss_info.soc_id;
 	info->fw_version = icnss_info.fw_version;
-	strlcpy(info->fw_build_timestamp, icnss_info.fw_build_timestamp,
+	strscpy(info->fw_build_timestamp, icnss_info.fw_build_timestamp,
 		sizeof(info->fw_build_timestamp));
 
 	return 0;
