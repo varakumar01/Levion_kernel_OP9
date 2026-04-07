@@ -18,10 +18,9 @@ jobs:
           echo "Repository structure:"
           ls
 
-      - name: Enter device tree folder and run compile.sh
+      - name: Make compile.sh executable and run
         run: |
-          cd Levion_kernel_OP9
-          chmod +x compile.sh
+          chmod +x ./compile.sh
           ./compile.sh
 
       - name: Find generated zip
