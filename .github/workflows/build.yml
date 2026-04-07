@@ -10,13 +10,21 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repository
+      - name: Checkout device tree repository
         uses: actions/checkout@v3
+
+      - name: Clone AnyKernel3
+        run: |
+          git clone https://github.com/varakumar01/AnyKernel3.git $HOME/AnyKernel3
 
       - name: Debug repository structure
         run: |
-          echo "Repository structure:"
+          echo "Device tree repository structure:"
           ls
+          pwd
+          ls ~/.
+          echo "AnyKernel3 structure:"
+          ls $HOME/AnyKernel3
 
       - name: Make compile.sh executable and run
         run: |
