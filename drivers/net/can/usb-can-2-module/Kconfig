@@ -1,4 +1,4 @@
-config hlcan
+config HLCAN
         tristate "hlcan module for usb-can"
         depends on USB
         default y
