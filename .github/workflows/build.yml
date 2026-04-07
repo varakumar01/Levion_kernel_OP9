@@ -22,8 +22,11 @@ jobs:
           echo "Device tree repository structure:"
           ls
           pwd
+          echo "ls /home/runner/work:"
           ls /home/runner/work
+          echo "ls /home/runner:"
           ls /home/runner
+          echo "ls $HOME:"
           ls $HOME
           echo "AnyKernel3 structure:"
           ls $HOME/AnyKernel3
@@ -32,6 +35,15 @@ jobs:
         run: |
           chmod +x ./compile.sh
           ./compile.sh
+
+      - name: Debug repository structure
+        run: |
+          echo "Device tree repository structure:"
+          ls
+          pwd
+          ls /home/runner/work
+          ls /home/runner
+          ls $HOME
 
       - name: Find generated zip
         id: zip
