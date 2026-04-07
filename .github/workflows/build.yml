@@ -13,16 +13,18 @@ jobs:
       - name: Checkout device tree repository
         uses: actions/checkout@v3
 
-      - name: Clone AnyKernel3
+      - name: Clone AnyKernel3 (op9 branch)
         run: |
-          git clone https://github.com/varakumar01/AnyKernel3.git $HOME/AnyKernel3
+          git clone --branch op9 https://github.com/varakumar01/AnyKernel3.git $HOME/AnyKernel3
 
       - name: Debug repository structure
         run: |
           echo "Device tree repository structure:"
           ls
           pwd
-          ls ~/.
+          ls /home/runner/work
+          ls /home/runner
+          ls $HOME
           echo "AnyKernel3 structure:"
           ls $HOME/AnyKernel3
 
