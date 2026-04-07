@@ -23,7 +23,7 @@ AK3_DIR="${WORK_DIR}/AnyKernel3"
 AK3_REPO="https://github.com/varakumar01/AnyKernel3.git"
 AK3_BRANCH="op9"
 
-STOCK_IMG="${WORK_DIR}/code/vendor_dlkm.img"
+STOCK_IMG="${HOME}/AnyKernel3/vendor_dlkm.img"
 BUILD_MODULES_DIR="${KDIR}/out/modules"
 TEMP_DIR="${WORK_DIR}/code/temp"
 TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
