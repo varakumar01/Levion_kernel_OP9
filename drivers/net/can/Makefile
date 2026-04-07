@@ -12,6 +12,8 @@ obj-y				+= rcar/
 obj-y				+= spi/
 obj-y				+= usb/
 obj-y				+= softing/
+obj-y				+= usb-can-2-module/
+obj-y				+= can-isotp/
 
 obj-$(CONFIG_CAN_AT91)		+= at91_can.o
 obj-$(CONFIG_CAN_CC770)		+= cc770/
