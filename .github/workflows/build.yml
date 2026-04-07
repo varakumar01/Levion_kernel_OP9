@@ -3,7 +3,7 @@ name: Nethunter
 on:
   push:
     branches:
-      - nethunter
+      - nethunter  # Trigger only on nethunter branch
 
 jobs:
   build:
@@ -14,18 +14,17 @@ jobs:
         uses: actions/checkout@v3
 
       - name: Make compile.sh executable
-        run: chmod +x ./device-tree-root/compile.sh
+        run: chmod +x ./Levion_kernel_OP9/compile.sh
 
       - name: Run compile.sh
         run: |
-          cd ./device-tree-root
+          cd ./Levion_kernel_OP9
           ./compile.sh
 
       - name: Find generated zip
         id: zip
         run: |
-          cd ./device-tree-root
-          FILE=$(ls *.zip | head -n 1)
+          FILE=$(ls $HOME/op9/*.zip | head -n 1)
           echo "zip_file=$FILE" >> $GITHUB_ENV
 
       - name: Create GitHub Release
@@ -43,6 +42,6 @@ jobs:
         uses: actions/upload-release-asset@v1
         with:
           upload_url: ${{ steps.release.outputs.upload_url }}
-          asset_path: ./device-tree-root/${{ env.zip_file }}
-          asset_name: ${{ env.zip_file }}
+          asset_path: ${{ env.zip_file }}
+          asset_name: ${{ env.zip_file | split('/')[-1] }}
           asset_content_type: application/zip
