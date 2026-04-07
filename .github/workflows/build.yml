@@ -17,7 +17,8 @@ jobs:
         run: |
           echo "Current working directory: $(pwd)"
           echo "Device tree repository structure:"
-          ls
+          ls $pwd
+          echo ${GITHUB_WORKSPACE}
 
       - name: Make compile.sh executable and run
         run: |

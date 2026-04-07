@@ -220,11 +220,16 @@ MAKE_FLAGS=(
 
 cd "$KDIR"
 
-info "Running clean..."
-make "${MAKE_FLAGS[@]}" clean
+# Helper function for “safe” commands
+safe_run() {
+    "$@" || echo "[WARN] Command failed, but continuing: $*"
+}
 
-info "Running mrproper..."
-make "${MAKE_FLAGS[@]}" mrproper
+info "Running clean (expected errors are OK)..."
+safe_run make "${MAKE_FLAGS[@]}" clean
+
+info "Running mrproper (expected errors are OK)..."
+safe_run make "${MAKE_FLAGS[@]}" mrproper
 
 info "Git status:"
 git status
