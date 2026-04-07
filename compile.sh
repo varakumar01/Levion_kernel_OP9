@@ -184,18 +184,13 @@ info "Clang version: $(clang --version | head -1)"
 # ══════════════════════════════════════════════════════════════════════════════
 # Step 3: Pull Android Kernel Tree
 # ══════════════════════════════════════════════════════════════════════════════
-step "Step 3: Pulling Kernel Source Tree"
+# Step 3: Pulling Kernel Source Tree
 
-mkdir -p "$(dirname "$KDIR")"
+info "Using checked-out kernel source from GitHub Actions..."
 
-if [[ -d "$KDIR/.git" ]]; then
-    info "Kernel repo already exists — pulling latest..."
-    cd "$KDIR"
-    git pull --rebase
-else
-    info "Cloning kernel repo..."
-    git clone --depth=1 "$KERNEL_REPO" "$KDIR"
-fi
+# GitHub Actions checkout will automatically clone the repo into $GITHUB_WORKSPACE
+# Map it to KDIR variable so existing build scripts still work
+export KDIR="${GITHUB_WORKSPACE}"
 
 cd "$KDIR"
 success "Kernel source ready at $KDIR"

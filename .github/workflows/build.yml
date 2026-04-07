@@ -11,39 +11,18 @@ jobs:
 
     steps:
       - name: Checkout device tree repository
-        uses: actions/checkout@v3
-
-      - name: Clone AnyKernel3 (op9 branch)
-        run: |
-          git clone --branch op9 https://github.com/varakumar01/AnyKernel3.git $HOME/AnyKernel3
+        uses: actions/checkout@v4
 
       - name: Debug repository structure
         run: |
+          echo "Current working directory: $(pwd)"
           echo "Device tree repository structure:"
           ls
-          pwd
-          echo "ls /home/runner/work:"
-          ls /home/runner/work
-          echo "ls /home/runner:"
-          ls /home/runner
-          echo "ls $HOME:"
-          ls $HOME
-          echo "AnyKernel3 structure:"
-          ls $HOME/AnyKernel3
 
       - name: Make compile.sh executable and run
         run: |
           chmod +x ./compile.sh
           ./compile.sh
-
-      - name: Debug repository structure
-        run: |
-          echo "Device tree repository structure:"
-          ls
-          pwd
-          ls /home/runner/work
-          ls /home/runner
-          ls $HOME
 
       - name: Find generated zip
         id: zip
