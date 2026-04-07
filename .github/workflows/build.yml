@@ -16,7 +16,7 @@ jobs:
       - name: Debug repository structure
         run: |
           echo "Repository structure:"
-          ls -R
+          ls
 
       - name: Enter device tree folder and run compile.sh
         run: |
