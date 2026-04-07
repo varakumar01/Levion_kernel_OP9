@@ -1,1 +1,1 @@
-obj-m += hlcan.o
+obj-$(CONFIG_HLCAN) += hlcan.o
