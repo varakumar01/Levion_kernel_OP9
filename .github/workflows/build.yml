@@ -1,70 +1,47 @@
-name: Nethunter
+name: Build and Release
 
 on:
-  workflow_dispatch:    # Start only manually
+  push:
+    tags:
+      - 'v*'  # Trigger on version tags like v1.0.0
 
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 120
 
     steps:
-      # ── 1. Checkout kernel source ──────────────────────────────────────────
       - name: Checkout repository
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 1
-          submodules: recursive
+        uses: actions/checkout@v3
 
-      # ── 2. Free up disk space (runners only have ~14 GB free) ─────────────
-      - name: Free disk space
-        run: |
-          sudo rm -rf /usr/share/dotnet /usr/local/lib/android \
-                      /opt/ghc /opt/hostedtoolcache/CodeQL \
-                      /usr/local/share/powershell /usr/share/swift
-          sudo docker image prune --all --force 2>/dev/null || true
-          df -h
-
-      # ── 3. Cache Clang toolchain (clang-r547379) ───────────────────────────
-      - name: Cache Clang toolchain
-        uses: actions/cache@v4
-        with:
-          path: toolchains/linux-x86/clang-r547379
-          key: clang-r547379-${{ runner.os }}-v1
-
-      # ── 4. Cache ccache objects ────────────────────────────────────────────
-      - name: Cache ccache
-        uses: actions/cache@v4
-        with:
-          path: ~/.ccache
-          key: ccache-${{ runner.os }}-${{ github.ref_name }}-${{ github.sha }}
-          restore-keys: |
-            ccache-${{ runner.os }}-${{ github.ref_name }}-
-            ccache-${{ runner.os }}-
-
-      # ── 5. Make compile.sh executable ─────────────────────────────────────
       - name: Make compile.sh executable
-        run: chmod +x compile.sh
+        run: chmod +x ./device-tree-root/compile.sh
 
-      # ── 6. Run compile.sh ─────────────────────────────────────────────────
       - name: Run compile.sh
-        run: ./compile.sh --device=lahaina
-        env:
-          DEBIAN_FRONTEND: noninteractive
+        run: |
+          cd ./device-tree-root
+          ./compile.sh
 
-      # ── 7. Show ccache stats ───────────────────────────────────────────────
-      - name: ccache stats
-        if: always()
-        run: ccache --show-stats 2>/dev/null || true
+      - name: Find generated zip
+        id: zip
+        run: |
+          FILE=$(ls ./device-tree-root/*.zip | head -n 1)
+          echo "zip_file=$FILE" >> $GITHUB_ENV
 
-      # ── 8. Upload raw kernel images as artifacts ───────────────────────────
-      - name: Upload kernel images
-        uses: actions/upload-artifact@v4
+      - name: Create GitHub Release
+        id: release
+        uses: actions/create-release@v1
         with:
-          name: Neutrino-images
-          path: |
-            out/arch/arm64/boot/Image
-            out/arch/arm64/boot/Image.gz
-            out/arch/arm64/boot/dtbo.img
-          if-no-files-found: warn
-          retention-days: 30
+          tag_name: ${{ github.ref_name }}
+          release_name: Release ${{ github.ref_name }}
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload zip to Release
+        uses: actions/upload-release-asset@v1
+        with:
+          upload_url: ${{ steps.release.outputs.upload_url }}
+          asset_path: ${{ env.zip_file }}
+          asset_name: ${{ env.zip_file }}
+          asset_content_type: application/zip
