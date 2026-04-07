@@ -200,6 +200,8 @@ success "Kernel source ready at $KDIR"
 # ══════════════════════════════════════════════════════════════════════════════
 step "Step 4: Compiling Kernel"
 
+git submodule update --init --recursive
+
 # Common make flags
 MAKE_FLAGS=(
     O=out
