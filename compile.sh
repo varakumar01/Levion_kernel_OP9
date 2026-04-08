@@ -11,25 +11,25 @@ set -euo pipefail
 # Global Configuration
 # ══════════════════════════════════════════════════════════════════════════════
 
-WORK_DIR="${HOME}/op9"
-TOOLCHAIN_DIR="${WORK_DIR}/kernel-repo/llvm-toolchain/linux-x86"
+WORK_DIR="${HOME}"
+TOOLCHAIN_DIR="${WORK_DIR}/linux-x86"
 CLANG_VERSION="clang-r547379"
 CLANG_PATH="${TOOLCHAIN_DIR}/${CLANG_VERSION}/bin"
 
-KDIR="${WORK_DIR}/code/Levion_kernel_OP9"
+KDIR="${GITHUB_WORKSPACE}"
 KERNEL_REPO="https://github.com/varakumar01/Levion_kernel_OP9.git"
 
 AK3_DIR="${WORK_DIR}/AnyKernel3"
 AK3_REPO="https://github.com/varakumar01/AnyKernel3.git"
 AK3_BRANCH="op9"
 
-STOCK_IMG="${HOME}/AnyKernel3/vendor_dlkm.img"
+STOCK_IMG="${WORK_DIR}/AnyKernel3/vendor_dlkm.img"
 BUILD_MODULES_DIR="${KDIR}/out/modules"
-TEMP_DIR="${WORK_DIR}/code/temp"
+OUT_DIR="${WORK_DIR}/out"
 TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
-RUN_DIR="${TEMP_DIR}/vendor_dlkm_files_${TIMESTAMP}"
+RUN_DIR="${OUT_DIR}/vendor_dlkm_files_${TIMESTAMP}"
 
-OUT_ZIP="${WORK_DIR}/levion_kernel.zip"
+OUT_ZIP="${OUT_DIR}/levion_kernel.zip"
 
 # ── Colours ───────────────────────────────────────────────────────────────────
 RED='\033[0;31m'; GREEN='\033[0;32m'; CYAN='\033[0;36m'; YELLOW='\033[1;33m'
@@ -184,21 +184,14 @@ info "Clang version: $(clang --version | head -1)"
 # ══════════════════════════════════════════════════════════════════════════════
 # Step 3: Pull Android Kernel Tree
 # ══════════════════════════════════════════════════════════════════════════════
-# Step 3: Pulling Kernel Source Tree
 
-info "Using checked-out kernel source from GitHub Actions..."
-
-# GitHub Actions checkout will automatically clone the repo into $GITHUB_WORKSPACE
-# Map it to KDIR variable so existing build scripts still work
-export KDIR="${GITHUB_WORKSPACE}"
+# ══════════════════════════════════════════════════════════════════════════════
+# Step 3: Compile the Kernel
+# ══════════════════════════════════════════════════════════════════════════════
+step "Step 3: Compiling Kernel"
 
 cd "$KDIR"
 success "Kernel source ready at $KDIR"
-
-# ══════════════════════════════════════════════════════════════════════════════
-# Step 4: Compile the Kernel
-# ══════════════════════════════════════════════════════════════════════════════
-step "Step 4: Compiling Kernel"
 
 git submodule update --init --recursive
 
@@ -222,7 +215,7 @@ MAKE_FLAGS=(
 
 cd "$KDIR"
 
-# Helper function for “safe” commands
+# Helper function for "safe" commands || similar to "try {}"
 safe_run() {
     "$@" || echo "[WARN] Command failed, but continuing: $*"
 }
@@ -255,9 +248,9 @@ make "${MAKE_FLAGS[@]}" INSTALL_MOD_PATH=out/modules modules_install
 success "Modules installed → $BUILD_MODULES_DIR"
 
 # ══════════════════════════════════════════════════════════════════════════════
-# Step 5: Generate vendor_dlkm.img
+# Step 4: Generate vendor_dlkm.img
 # ══════════════════════════════════════════════════════════════════════════════
-step "Step 5: Generating vendor_dlkm Image"
+step "Step 4: Generating vendor_dlkm Image"
 
 # ── Validate stock image ──────────────────────────────────────────────────────
 [[ -f "$STOCK_IMG" ]] || die "Stock vendor_dlkm.img not found at $STOCK_IMG"
@@ -426,9 +419,9 @@ info "Verifying EROFS image..."
 fsck.erofs "$OUT_IMG" 2>&1 && success "Image passed fsck" || warn "Image failed fsck!"
 
 # ══════════════════════════════════════════════════════════════════════════════
-# Step 6: Clone AnyKernel3
+# Step 5: Clone AnyKernel3
 # ══════════════════════════════════════════════════════════════════════════════
-step "Step 6: Cloning AnyKernel3"
+step "Step 5: Cloning AnyKernel3"
 
 if [[ -d "$AK3_DIR/.git" ]]; then
     info "AK3 repo already exists — pulling latest..."
@@ -443,9 +436,9 @@ fi
 success "AnyKernel3 ready at $AK3_DIR"
 
 # ══════════════════════════════════════════════════════════════════════════════
-# Step 7: Update vendor_ramdisk Modules in AK3
+# Step 6: Update vendor_ramdisk Modules in AK3
 # ══════════════════════════════════════════════════════════════════════════════
-step "Step 7: Updating vendor_ramdisk Modules in AK3"
+step "Step 6: Updating vendor_ramdisk Modules in AK3"
 
 # Locate vendor_ramdisk modules directory in AK3
 AK3_RAMDISK_MOD_DIR=""
@@ -498,9 +491,9 @@ else
 fi
 
 # ══════════════════════════════════════════════════════════════════════════════
-# Step 8: Copy Image and vendor_dlkm.img into AK3
+# Step 7: Copy Image and vendor_dlkm.img into AK3
 # ══════════════════════════════════════════════════════════════════════════════
-step "Step 8: Copying Image and vendor_dlkm.img into AK3"
+step "Step 7: Copying Image and vendor_dlkm.img into AK3"
 
 # Copy kernel Image
 info "Copying Image → $AK3_DIR/Image"
@@ -513,9 +506,9 @@ cp -p "$OUT_IMG" "${AK3_DIR}/vendor_dlkm.img"
 success "vendor_dlkm.img copied"
 
 # ══════════════════════════════════════════════════════════════════════════════
-# Step 9: Create AnyKernel3 Zip
+# Step 8: Create AnyKernel3 Zip
 # ══════════════════════════════════════════════════════════════════════════════
-step "Step 9: Zipping AnyKernel3"
+step "Step 8: Zipping AnyKernel3"
 
 cd "$AK3_DIR"
 
@@ -528,9 +521,9 @@ ZIP_SIZE=$(du -sh "$OUT_ZIP" | cut -f1)
 success "Created $OUT_ZIP ($ZIP_SIZE)"
 
 # ══════════════════════════════════════════════════════════════════════════════
-# Step 10: Release Summary
+# Step 9: Release Summary
 # ══════════════════════════════════════════════════════════════════════════════
-step "Step 10: Build Complete — Release Summary"
+step "Step 9: Build Complete — Release Summary"
 
 echo ""
 echo -e "${BOLD}${GREEN}╔══════════════════════════════════════════════════════╗${NC}"
