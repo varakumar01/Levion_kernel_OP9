@@ -153,3 +153,7 @@ arch/arm/boot/dts/vendor
 #Ignoring Android.bp link file
 #
 Android.bp
+
+# Required files for Git Workflows
+!.github/compile.sh
+!.github/release_notes.txt

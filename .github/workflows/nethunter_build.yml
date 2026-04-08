@@ -1,0 +1,71 @@
+name: Nethunter Kernel Build
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      # Step 1: Checkout the op9 device tree repo
+      - name: Checkout device tree repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      # Step 2: Clone AnyKernel3 repo
+      - name: Clone AnyKernel3 and verify
+        run: |
+          AK3_DIR="${HOME}/AnyKernel3"
+
+          git clone --branch op9 https://github.com/varakumar01/AnyKernel3.git "$AK3_DIR"
+
+          if [[ ! -d "$AK3_DIR/.git" ]]; then
+            echo "AK3 clone failed"
+            exit 1
+          fi
+
+          echo "AnyKernel3 ready at $AK3_DIR"
+
+      # Step 3: Run compile script
+      - name: Make compile.sh executable and run
+        run: |
+          chmod +x .github/compile.sh
+          .github/compile.sh
+
+      # Step 4: Find generated zip
+      - name: Find generated zip
+        id: zip
+        run: |
+          FILE=$(ls $HOME/out/*.zip | head -n 1)
+          if [ -z "$FILE" ]; then
+            echo "No zip found in $HOME/out!"
+            exit 1
+          fi
+          echo "zip_file=$FILE" >> $GITHUB_ENV
+          echo "Found zip: $(basename "$FILE")"
+
+      # Step 5: Delete previous release and tag
+      - name: Delete previous release and tag
+        run: |
+          TAG="nethunter-release"
+
+          gh release delete "$TAG" --yes || echo "No existing release"
+          git push origin --delete "$TAG" || echo "No existing tag"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # Step 6: Create Release and Upload Asset
+      - name: Create Release and Upload Asset
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: nethunter-release
+          name: Levion Test Build
+          files: ${{ env.zip_file }}
+          body_path: .github/release_notes.txt
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
