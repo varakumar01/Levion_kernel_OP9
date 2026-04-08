@@ -1,0 +1,52 @@
+# 📦 Release Notes — April 2026
+
+## 🚀 Android Support
+
+* Compatible with **Android 15–16 ROMs**
+
+---
+
+## 🛠️ NetHunter Support
+
+### 🔌 Core Support
+
+* **USB Support**
+* **Bluetooth Drivers**
+* **Ethernet Drivers**
+* **HID (Human Interface Device) Support**
+
+### 📡 Wireless Drivers
+
+* **Atheros**: ath9k_htc, carl9170, ath6kl, ath6kl_usb
+* **MediaTek**: mt7601u
+* **Ralink**: rt2500usb, rt73usb, rt2800usb *(rt33xx, rt35xx, rt3573, rt53xx, rt55xx)*
+* **Realtek**: rtl8187, rtl8192cu, rtl8xxxu, rtw88
+* **ZyDAS**: zd1201, zd1211rw
+* **Other**: rndis_wlan
+
+### 🔧 Additional Support
+
+* **CAN Bus**: hlcan, slcan
+* **SDR (Software Defined Radio) Support**
+
+---
+
+# ⚠️ Disclaimer
+
+* **Flash at your own risk**
+* This build has **only been tested on LineageOS 23.2**
+* Compatibility with other ROMs or configurations is **not guaranteed**
+
+---
+
+## 🐞 Bug Reporting
+
+* Report any bugs or issues encountered
+* Always include logs and clear reproduction steps
+
+---
+
+## 📝 Notes for Users
+
+* Ensure you have a proper backup of **vendor_dlkm.img** *(must be extracted separately)*, **vendor_boot.img**, and **boot.img** before flashing
+* Clean flash is recommended for best stability
