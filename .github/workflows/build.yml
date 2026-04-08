@@ -3,7 +3,7 @@ name: Nethunter
 on:
   push:
     branches:
-      - nethunter  # Trigger only on nethunter branch
+      - nethunter
 
 permissions:
   contents: write
@@ -17,7 +17,7 @@ jobs:
       - name: Checkout device tree repository
         uses: actions/checkout@v4
         with:
-          submodules: recursive  # Pull submodules if present
+          submodules: recursive
 
       # Step 2: Clone AnyKernel3 repo and verify vendor_dlkm.img
       - name: Clone AnyKernel3 and verify stock image
@@ -25,7 +25,6 @@ jobs:
           AK3_DIR="${HOME}/AnyKernel3"
           STOCK_IMG="${AK3_DIR}/vendor_dlkm.img"
 
-          # Clone or update AnyKernel3
           if [[ ! -d "$AK3_DIR/.git" ]]; then
             git clone --branch op9 https://github.com/varakumar01/AnyKernel3.git "$AK3_DIR"
           else
@@ -35,20 +34,20 @@ jobs:
 
           echo "AnyKernel3 ready at $AK3_DIR"
 
-          # Verify vendor_dlkm.img exists
           if [[ ! -f "$STOCK_IMG" ]]; then
             echo "Error: $STOCK_IMG not found! Aborting."
             exit 1
           fi
+
           echo "Verified stock image: $STOCK_IMG"
 
-      # Step 4: Make compile.sh executable and run
+      # Step 3: Run compile script
       - name: Make compile.sh executable and run
         run: |
           chmod +x ./compile.sh
           ./compile.sh
 
-      # Step 5: Find generated zip
+      # Step 4: Find generated zip
       - name: Find generated zip
         id: zip
         run: |
@@ -58,27 +57,14 @@ jobs:
             exit 1
           fi
           echo "zip_file=$FILE" >> $GITHUB_ENV
-          FILE_NAME=$(basename "$FILE")
-          echo "zip_name=$FILE_NAME" >> $GITHUB_ENV
-          echo "Found zip: $FILE_NAME"
+          echo "Found zip: $(basename "$FILE")"
 
-      # Step 6: Create GitHub Release
-      - name: Create GitHub Release
-        id: release
-        uses: actions/create-release@v1
+      # Step 5: Create Release and Upload Asset (modern)
+      - name: Create Release and Upload Asset
+        uses: softprops/action-gh-release@v1
         with:
-          tag_name: nethunter-v1
-          release_name: Levion Test Build
-          draft: false
-          prerelease: false
+          tag_name: nethunter-test
+          name: Levion Test Build
+          files: ${{ env.zip_file }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      # Step 7: Upload zip to Release
-      - name: Upload zip to Release
-        uses: actions/upload-release-asset@varakumar01
-        with:
-          upload_url: ${{ steps.release.outputs.upload_url }}
-          asset_path: ${{ env.zip_file }}
-          asset_name: ${{ env.zip_name }}
-          asset_content_type: application/zip
