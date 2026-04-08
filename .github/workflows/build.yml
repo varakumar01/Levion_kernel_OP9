@@ -5,6 +5,9 @@ on:
     branches:
       - nethunter  # Trigger only on nethunter branch
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -64,8 +67,8 @@ jobs:
         id: release
         uses: actions/create-release@v1
         with:
-          tag_name: Nethunter
-          release_name: Nethunter
+          tag_name: nethunter-v1
+          release_name: Levion Test Build
           draft: false
           prerelease: false
         env:
@@ -73,7 +76,7 @@ jobs:
 
       # Step 7: Upload zip to Release
       - name: Upload zip to Release
-        uses: actions/upload-release-asset@v1
+        uses: actions/upload-release-asset@varakumar01
         with:
           upload_url: ${{ steps.release.outputs.upload_url }}
           asset_path: ${{ env.zip_file }}
