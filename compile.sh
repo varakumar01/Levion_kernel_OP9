@@ -243,7 +243,7 @@ success "Kernel compiled → $KERNEL_IMAGE"
 
 # Install modules into out/modules
 info "Installing kernel modules..."
-make "${MAKE_FLAGS[@]}" INSTALL_MOD_PATH=out/modules modules_install
+make "${MAKE_FLAGS[@]}" INSTALL_MOD_PATH=modules modules_install
 
 success "Modules installed → $BUILD_MODULES_DIR"
 

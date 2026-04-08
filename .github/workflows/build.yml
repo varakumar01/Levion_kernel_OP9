@@ -39,16 +39,6 @@ jobs:
           fi
           echo "Verified stock image: $STOCK_IMG"
 
-      # Step 3: Debug repository structure
-      - name: Debug repository structure
-        run: |
-          echo "Current working directory: $(pwd)"
-          echo "Device tree repository structure:"
-          ls -la
-          echo "GitHub workspace: ${GITHUB_WORKSPACE}"
-          echo "AnyKernel3 structure:"
-          ls -la $HOME/AnyKernel3
-
       # Step 4: Make compile.sh executable and run
       - name: Make compile.sh executable and run
         run: |
@@ -59,9 +49,9 @@ jobs:
       - name: Find generated zip
         id: zip
         run: |
-          FILE=$(ls $HOME/op9/*.zip | head -n 1)
+          FILE=$(ls $HOME/out/*.zip | head -n 1)
           if [ -z "$FILE" ]; then
-            echo "No zip found in $HOME/op9!"
+            echo "No zip found in $HOME/out!"
             exit 1
           fi
           echo "zip_file=$FILE" >> $GITHUB_ENV
