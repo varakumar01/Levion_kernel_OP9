@@ -2,6 +2,15 @@ name: Test Kernel Build
 
 on:
   workflow_dispatch:
+    inputs:
+      filesystem:
+        description: "Select filesystem type"
+        required: true
+        default: erofs
+        type: choice
+        options:
+          - erofs
+          - ext4
 
 permissions:
   contents: write
@@ -35,13 +44,14 @@ jobs:
       - name: Make compile.sh executable and run
         run: |
           chmod +x .github/compile.sh
+          echo "Using filesystem: ${{ github.event.inputs.filesystem }}"
           .github/compile.sh --fs "${{ github.event.inputs.filesystem }}"
 
       # Step 4: Find generated zip
       - name: Find generated zip
         id: zip
         run: |
-          FILE=$(ls $HOME/out/*.zip | head -n 1)
+          FILE=$(ls $HOME/out/*.zip 2>/dev/null | head -n 1)
           if [ -z "$FILE" ]; then
             echo "No zip found in $HOME/out!"
             exit 1
