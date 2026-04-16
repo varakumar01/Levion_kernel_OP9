@@ -8,6 +8,44 @@
 set -euo pipefail
 
 # ══════════════════════════════════════════════════════════════════════════════
+# Argument Parsing
+# ══════════════════════════════════════════════════════════════════════════════
+
+FS_TYPE=""
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --fs)
+            shift
+            FS_TYPE="${1:-}"
+            if [[ "${FS_TYPE}" != "erofs" && "${FS_TYPE}" != "ext4" ]]; then
+                echo -e "\033[0;31m[ERR]\033[0m   Invalid --fs value '${FS_TYPE}'. Must be 'erofs' or 'ext4'." >&2
+                echo "Usage: bash compile.sh --fs <erofs|ext4>" >&2
+                exit 1
+            fi
+            shift
+            ;;
+        -h|--help)
+            echo "Usage: bash compile.sh --fs <erofs|ext4>"
+            echo ""
+            echo "  --fs erofs   Build vendor_dlkm.img as an EROFS image (default for most modern devices)"
+            echo "  --fs ext4    Build vendor_dlkm.img as an ext4 image"
+            exit 0
+            ;;
+        *)
+            echo -e "\033[0;31m[ERR]\033[0m   Unknown argument: $1" >&2
+            echo "Usage: bash compile.sh --fs <erofs|ext4>" >&2
+            exit 1
+            ;;
+    esac
+done
+
+if [[ -z "${FS_TYPE}" ]]; then
+    echo -e "\033[0;31m[ERR]\033[0m   --fs argument is required. Usage: bash compile.sh --fs <erofs|ext4>" >&2
+    exit 1
+fi
+
+# ══════════════════════════════════════════════════════════════════════════════
 # Global Configuration
 # ══════════════════════════════════════════════════════════════════════════════
 
@@ -237,9 +275,32 @@ EXTRACT_DIR="${RUN_DIR}/extracted"
 mkdir -p "${EXTRACT_DIR}" \
     || fail "Failed to create extract directory: ${EXTRACT_DIR}"
 
+info "Detecting filesystem type of stock image: ${STOCK_IMG}..."
+if file "${STOCK_IMG}" 2>/dev/null | grep -qi erofs; then
+    STOCK_FS_TYPE="erofs"
+elif file "${STOCK_IMG}" 2>/dev/null | grep -qi ext; then
+    STOCK_FS_TYPE="ext4"
+else
+    STOCK_FS_TYPE="erofs"
+    warn "Could not detect stock image filesystem — assuming erofs"
+fi
+info "Stock image detected as: ${STOCK_FS_TYPE}"
+
 info "Extracting stock vendor_dlkm.img → ${EXTRACT_DIR}..."
-fsck.erofs --extract="${EXTRACT_DIR}" --overwrite "${STOCK_IMG}" 2>&1 \
-    || fail "fsck.erofs extraction failed for ${STOCK_IMG}"
+if [[ "${STOCK_FS_TYPE}" == "erofs" ]]; then
+    fsck.erofs --extract="${EXTRACT_DIR}" --overwrite "${STOCK_IMG}" 2>&1 \
+        || fail "fsck.erofs extraction failed for ${STOCK_IMG}"
+else
+    STOCK_MOUNT="${RUN_DIR}/stock_mount"
+    mkdir -p "${STOCK_MOUNT}" \
+        || fail "Failed to create stock mount point: ${STOCK_MOUNT}"
+    sudo mount -o loop,ro "${STOCK_IMG}" "${STOCK_MOUNT}" \
+        || fail "Failed to mount stock ext4 image: ${STOCK_IMG}"
+    cp -a "${STOCK_MOUNT}/." "${EXTRACT_DIR}/" \
+        || { sudo umount "${STOCK_MOUNT}"; fail "Failed to copy from stock ext4 mount"; }
+    sudo umount "${STOCK_MOUNT}" \
+        || warn "Failed to unmount stock image (non-fatal)"
+fi
 pass "Stock image extracted"
 
 MODULES_DIR="${EXTRACT_DIR}/lib/modules"
@@ -374,9 +435,9 @@ tar -cpf - -C "${EXTRACT_DIR}" lib/ | xz -9e -T0 > "${OUT_TAR}" \
 TAR_SIZE=$(du -sh "${OUT_TAR}" | cut -f1)
 pass "Tarball created: ${OUT_TAR} (${TAR_SIZE})"
 
-# ── Build vendor_dlkm.img (EROFS) ─────────────────────────────────────────────
+# ── Build vendor_dlkm.img (EROFS or ext4 based on --fs) ──────────────────────
 OUT_IMG="${RUN_DIR}/vendor_dlkm_${TIMESTAMP}.img"
-info "Building EROFS vendor_dlkm image → ${OUT_IMG}..."
+info "Building vendor_dlkm image as ${FS_TYPE^^} → ${OUT_IMG}..."
 
 FILE_CONTEXTS="${RUN_DIR}/file_contexts"
 cat <<'EOF' > "${FILE_CONTEXTS}"
@@ -385,45 +446,103 @@ cat <<'EOF' > "${FILE_CONTEXTS}"
 /vendor_dlkm/etc(/.*)? u:object_r:vendor_configs_file:s0
 EOF
 
-mkfs.erofs \
-    --mount-point=/vendor_dlkm \
-    --all-root \
-    --file-contexts="${FILE_CONTEXTS}" \
-    -zlz4 \
-    -b4096 \
-    -T1230768000 \
-    "${OUT_IMG}" \
-    "${EXTRACT_DIR}" \
-    || fail "mkfs.erofs failed — could not build vendor_dlkm.img"
+if [[ "${FS_TYPE}" == "erofs" ]]; then
+    # ── EROFS path ────────────────────────────────────────────────────────────
+    mkfs.erofs \
+        --mount-point=/vendor_dlkm \
+        --all-root \
+        --file-contexts="${FILE_CONTEXTS}" \
+        -zlz4 \
+        -b4096 \
+        -T1230768000 \
+        "${OUT_IMG}" \
+        "${EXTRACT_DIR}" \
+        || fail "mkfs.erofs failed — could not build vendor_dlkm.img"
 
-if [[ ! -f "${OUT_IMG}" ]]; then
-    fail "vendor_dlkm.img was not created at ${OUT_IMG}"
-fi
+    if [[ ! -f "${OUT_IMG}" ]]; then
+        fail "vendor_dlkm.img was not created at ${OUT_IMG}"
+    fi
 
-ORIG_SIZE=$(stat --format="%s" "${STOCK_IMG}")
-NEW_SIZE=$(stat --format="%s" "${OUT_IMG}")
+    ORIG_SIZE=$(stat --format="%s" "${STOCK_IMG}")
+    NEW_SIZE=$(stat --format="%s" "${OUT_IMG}")
 
-if [[ "${NEW_SIZE}" -le "${ORIG_SIZE}" ]]; then
-    info "Padding image to match partition size (${ORIG_SIZE} bytes)..."
-    truncate -s "${ORIG_SIZE}" "${OUT_IMG}" \
-        || fail "truncate failed while padding ${OUT_IMG}"
-    pass "Image padded to ${ORIG_SIZE} bytes"
+    if [[ "${NEW_SIZE}" -le "${ORIG_SIZE}" ]]; then
+        info "Padding image to match partition size (${ORIG_SIZE} bytes)..."
+        truncate -s "${ORIG_SIZE}" "${OUT_IMG}" \
+            || fail "truncate failed while padding ${OUT_IMG}"
+        pass "Image padded to ${ORIG_SIZE} bytes"
+    else
+        warn "New image (${NEW_SIZE}) > original partition (${ORIG_SIZE})!"
+        warn "Image may not fit — consider removing unused modules."
+    fi
+
+    IMG_SIZE=$(du -sh "${OUT_IMG}" | cut -f1)
+    pass "vendor_dlkm.img created: ${OUT_IMG} (${IMG_SIZE})"
+
+    info "Verifying EROFS image with fsck.erofs..."
+    if fsck.erofs "${OUT_IMG}" 2>&1; then
+        pass "vendor_dlkm.img passed fsck verification"
+    else
+        warn "vendor_dlkm.img failed fsck — image may still be usable but inspect it"
+    fi
+
 else
-    warn "New image (${NEW_SIZE}) > original partition (${ORIG_SIZE})!"
-    warn "Image may not fit — consider removing unused modules."
+    # ── ext4 path ─────────────────────────────────────────────────────────────
+    EXT4_TMP="${OUT_IMG}.tmp"
+
+    info "Allocating 512 MiB sparse image..."
+    dd if=/dev/zero of="${EXT4_TMP}" bs=1M count=512 status=progress \
+        || fail "dd failed — could not allocate ext4 scratch image"
+
+    info "Formatting as ext4 (label: vendor_dlkm)..."
+    mke2fs -t ext4 \
+        -O extent,huge_file \
+        -T largefile \
+        -L vendor_dlkm \
+        -d "${EXTRACT_DIR}" \
+        "${EXT4_TMP}" \
+        || fail "mke2fs failed — could not format ext4 image"
+
+    info "Running e2fsck pass on raw image..."
+    e2fsck -f -y "${EXT4_TMP}" 2>&1 \
+        || warn "e2fsck returned non-zero — inspect image if flashing fails"
+
+    info "Shrinking ext4 image to minimum size..."
+    resize2fs -M "${EXT4_TMP}" \
+        || fail "resize2fs failed — could not shrink ext4 image"
+
+    mv "${EXT4_TMP}" "${OUT_IMG}" \
+        || fail "Failed to rename shrunk image to ${OUT_IMG}"
+
+    if [[ ! -f "${OUT_IMG}" ]]; then
+        fail "vendor_dlkm.img was not created at ${OUT_IMG}"
+    fi
+
+    ORIG_SIZE=$(stat --format="%s" "${STOCK_IMG}")
+    NEW_SIZE=$(stat --format="%s" "${OUT_IMG}")
+
+    if [[ "${NEW_SIZE}" -le "${ORIG_SIZE}" ]]; then
+        info "Padding image to match partition size (${ORIG_SIZE} bytes)..."
+        truncate -s "${ORIG_SIZE}" "${OUT_IMG}" \
+            || fail "truncate failed while padding ${OUT_IMG}"
+        pass "Image padded to ${ORIG_SIZE} bytes"
+    else
+        warn "New image (${NEW_SIZE}) > original partition (${ORIG_SIZE})!"
+        warn "Image may not fit — consider removing unused modules."
+    fi
+
+    IMG_SIZE=$(du -sh "${OUT_IMG}" | cut -f1)
+    pass "vendor_dlkm.img created: ${OUT_IMG} (${IMG_SIZE})"
+
+    info "Verifying ext4 image with e2fsck..."
+    if e2fsck -f -n "${OUT_IMG}" 2>&1; then
+        pass "vendor_dlkm.img passed e2fsck verification"
+    else
+        warn "vendor_dlkm.img failed e2fsck — image may still be usable but inspect it"
+    fi
 fi
 
-IMG_SIZE=$(du -sh "${OUT_IMG}" | cut -f1)
-pass "vendor_dlkm.img created: ${OUT_IMG} (${IMG_SIZE})"
-
-info "Verifying EROFS image with fsck.erofs..."
-if fsck.erofs "${OUT_IMG}" 2>&1; then
-    pass "vendor_dlkm.img passed fsck verification"
-else
-    warn "vendor_dlkm.img failed fsck — image may still be usable but inspect it"
-fi
-
-success "Step 4 complete: vendor_dlkm.img built."
+success "Step 4 complete: vendor_dlkm.img built (${FS_TYPE^^})."
 
 # ══════════════════════════════════════════════════════════════════════════════
 # Step 5: Update vendor_ramdisk Modules in AK3
@@ -530,7 +649,7 @@ echo -e "${BOLD}${GREEN}║          Levion Kernel Build Summary                
 echo -e "${BOLD}${GREEN}╚══════════════════════════════════════════════════════╝${NC}"
 echo ""
 echo -e "  ${BOLD}Kernel Image:${NC}        ${KERNEL_IMAGE}"
-echo -e "  ${BOLD}vendor_dlkm.img:${NC}     ${OUT_IMG} (${IMG_SIZE})"
+echo -e "  ${BOLD}vendor_dlkm.img:${NC}     ${OUT_IMG} (${IMG_SIZE}) [${FS_TYPE^^}]"
 echo -e "  ${BOLD}vendor_dlkm.tar.xz:${NC} ${OUT_TAR} (${TAR_SIZE})"
 echo -e "  ${BOLD}AK3 Zip:${NC}             ${OUT_ZIP} (${ZIP_SIZE})"
 echo -e "  ${BOLD}Modules in image:${NC}    ${NEW_KO_COUNT} .ko files"
