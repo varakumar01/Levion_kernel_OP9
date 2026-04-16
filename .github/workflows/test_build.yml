@@ -1,4 +1,4 @@
-name: Nethunter Kernel Build
+name: Test Kernel Build
 
 on:
   workflow_dispatch:
@@ -35,7 +35,7 @@ jobs:
       - name: Make compile.sh executable and run
         run: |
           chmod +x .github/compile.sh
-          .github/compile.sh --fs ext4
+          .github/compile.sh --fs "${{ github.event.inputs.filesystem }}"
 
       # Step 4: Find generated zip
       - name: Find generated zip
@@ -52,7 +52,7 @@ jobs:
       # Step 5: Delete previous release and tag
       - name: Delete previous release and tag
         run: |
-          TAG="nethunter-release"
+          TAG="test-release"
 
           gh release delete "$TAG" --yes || echo "No existing release"
           git push origin --delete "$TAG" || echo "No existing tag"
@@ -63,8 +63,8 @@ jobs:
       - name: Create Release and Upload Asset
         uses: softprops/action-gh-release@v1
         with:
-          tag_name: nethunter-release
-          name: Levion Kernel Nethunter + KsuN Build
+          tag_name: test-release
+          name: Levion Test Kernel Build
           files: ${{ env.zip_file }}
           body_path: .github/release_notes.txt
         env:

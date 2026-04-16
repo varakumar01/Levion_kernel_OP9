@@ -157,3 +157,6 @@ Android.bp
 # Required files for Git Workflows
 !.github/compile.sh
 !.github/release_notes.txt
+!.github/workflows/nethunter_build.yml
+!.github/workflows/ksun_build.yml
+!.github/workflows/test_build.yml
