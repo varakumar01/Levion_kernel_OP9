@@ -496,7 +496,8 @@ else
 
     info "Formatting as ext4 (label: vendor_dlkm)..."
     mke2fs -t ext4 \
-        -O extent,huge_file \
+        -O extent,huge_file,dir_index,filetype,resize_inode,sparse_super,large_file \
+        -O ^64bit,^metadata_csum,^flex_bg,^has_journal,^dir_nlink,^extra_isize,^orphan_file \
         -T largefile \
         -L vendor_dlkm \
         -d "${EXTRACT_DIR}" \
