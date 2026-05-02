@@ -180,13 +180,8 @@ config NET_IPIP
 config NET_IPGRE_DEMUX
 	tristate "IP: GRE demultiplexer"
 	help
-<<<<<<< HEAD
-	  This is helper module to demultiplex GRE packets on GRE version field criteria.
-	  Required by ip_gre and pptp modules.
-=======
 	 This is helper module to demultiplex GRE packets on GRE version field criteria.
 	 Required by ip_gre, pptp and eoip modules.
->>>>>>> 115fc4fb090b (net: ipv4: Implement MikroTik EoIP tunnel support)
 
 config NET_IP_TUNNEL
 	tristate
