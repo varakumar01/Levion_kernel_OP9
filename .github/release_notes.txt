@@ -1,52 +1,39 @@
 # 📦 Release Notes — April 2026
 
-## 🚀 Android Support
+> ⚠️ **Flash at your own risk** — Tested on **LineageOS 23.2** only. Other ROMs not guaranteed.
 
-* Compatible with **Android 15–16 ROMs**
-
----
-
-## 🛠️ NetHunter Support
-
-### 🔌 Core Support
-
-* **USB Support**
-* **Bluetooth Drivers**
-* **Ethernet Drivers**
-* **HID (Human Interface Device) Support**
-
-### 📡 Wireless Drivers
-
-* **Atheros**: ath9k_htc, carl9170, ath6kl, ath6kl_usb
-* **MediaTek**: mt7601u
-* **Ralink**: rt2500usb, rt73usb, rt2800usb *(rt33xx, rt35xx, rt3573, rt53xx, rt55xx)*
-* **Realtek**: rtl8187, rtl8192cu, rtl8xxxu, rtw88
-* **ZyDAS**: zd1201, zd1211rw
-* **Other**: rndis_wlan
-
-### 🔧 Additional Support
-
-* **CAN Bus**: hlcan, slcan
-* **SDR (Software Defined Radio) Support**
+> ⚠️ Only **Android 16** ROMs
 
 ---
 
-# ⚠️ Disclaimer
+## 🌐 Network Stack
 
-* **Flash at your own risk**
-* This build has **only been tested on LineageOS 23.2**
-* Compatibility with other ROMs or configurations is **not guaranteed**
-
----
-
-## 🐞 Bug Reporting
-
-* Report any bugs or issues encountered
-* Always include logs and clear reproduction steps
+- **BBR v3** — Google's latest congestion control algorithm; improves throughput & reduces latency on lossy/high-bandwidth networks
+- **FQ Qodel Qdisc** — Fair Queuing scheduler; eliminates bufferbloat and ensures low-latency packet scheduling under load
+- **MPTCP** — Multipath TCP; allows simultaneous use of multiple network interfaces (Wi-Fi + Mobile) for better reliability & speed
 
 ---
 
-## 📝 Notes for Users
+## ⚡ USB Fast Charge
+- Force fast charging up to **900mA** in USB 2.0 mode
+- Toggle via sysfs:
+```
+  echo 0 /sys/kernel/fast_charge/force_fast_charge  # Disable
+  echo 1 /sys/kernel/fast_charge/force_fast_charge  # Enable
+```
 
-* Ensure you have a proper backup of **vendor_dlkm.img** *(must be extracted separately)*, **vendor_boot.img**, and **boot.img** before flashing
+---
+
+## 🔐 KernelSU Next
+- **KernelSU Next** v3.2.0
+- **SuSFS** v2.1.0
+
+---
+
+## 📝 Before Flashing
+* Ensure you have a proper backup of **vendor_boot.img**, and **boot.img** before flashing
 * Clean flash is recommended for best stability
+
+## 🐞 Bug Reports
+- Include logs and clear reproduction steps
+
