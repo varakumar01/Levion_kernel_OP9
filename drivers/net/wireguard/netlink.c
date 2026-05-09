@@ -198,7 +198,7 @@ err:
 
 static int wg_get_device_start(struct netlink_callback *cb)
 {
-	struct nlattr **attrs = genl_family_attrbuf(&genl_family);
+	struct nlattr **attrs = genl_family.attrbuf;
 	struct wg_device *wg;
 	int ret;
 
