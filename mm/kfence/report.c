@@ -5,8 +5,6 @@
  * Copyright (C) 2020, Google LLC.
  */
 
-#include <stdarg.h>
-
 #include <linux/kernel.h>
 #include <linux/lockdep.h>
 #include <linux/printk.h>
