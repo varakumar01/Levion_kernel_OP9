@@ -1,4 +1,6 @@
-#define BB_ENFORCING 1
+/* 0 = log-only (permissive, for testing): denials are logged but NOT blocked.
+ * Set back to 1 to actually enforce. */
+#define BB_ENFORCING 0
 
 #ifdef CONFIG_BBG_DEBUG
 #define BB_DEBUG 1
