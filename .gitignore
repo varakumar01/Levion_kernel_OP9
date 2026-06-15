@@ -160,3 +160,6 @@ Android.bp
 !.github/workflows/nethunter_build.yml
 !.github/workflows/ksun_build.yml
 !.github/workflows/test_build.yml
+
+# README assets (ignored by default via ".*", force-added on purpose)
+.github/assets/
