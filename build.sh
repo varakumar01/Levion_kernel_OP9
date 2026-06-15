@@ -24,19 +24,23 @@ PARENT="$(dirname "${KDIR}")"                           # one level up
 STOCK_IMG="${PARENT}/vendor_dlkm.img"                   # stock image sits in parent
 AK3_DIR="${PARENT}/levion_kernel"                       # AnyKernel3 dir in parent
 BUILD_MODULES_DIR="${KDIR}/out/modules"
+OUT_VDLKM="${PARENT}/vendor_dlkm_new.img"               # generated image — STOCK_IMG is read-only, never modified
 
 # ──────────────────────────────────────────────────────────────
 # Parse args
 # Default (no args): full build — kernel + vendor_dlkm.img + zip
 # --vendor_dlkm   : only regenerate vendor_dlkm.img
 # --image         : only build the kernel Image
+# --debug         : keep the scratch/staging (generated files left on disk)
 # ──────────────────────────────────────────────────────────────
 
 MODE="all"
+DEBUG=0
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --vendor_dlkm) MODE="vendor_dlkm"; shift ;;
         --image)       MODE="image";       shift ;;
+        --debug)       DEBUG=1;            shift ;;
         *) echo "Unknown arg: $1"; exit 1 ;;
     esac
 done
@@ -85,7 +89,6 @@ if [[ "${MODE}" == "all" || "${MODE}" == "image" ]]; then
 
     # Step 2 — Clean
     yellow "[*] Cleaning build tree..."
-    make "${MAKE_FLAGS[@]}" clean    || yellow "    [~] clean exited non-zero (ignored)"
     make "${MAKE_FLAGS[@]}" mrproper || yellow "    [~] mrproper exited non-zero (ignored)"
     git status
     green "[✓] Clean done"
@@ -124,34 +127,18 @@ if [[ "${MODE}" == "all" || "${MODE}" == "vendor_dlkm" ]]; then
 
     BUILD_KO_COUNT=$(find "${BUILD_MODULES_DIR}" -type f -name "*.ko" 2>/dev/null | wc -l)
     if [ "${BUILD_KO_COUNT}" -eq 0 ]; then
-        yellow "[!] No modules found in ${BUILD_MODULES_DIR} — building them now..."
-
-        cd "${KDIR}"
-        git submodule update --init --recursive
-
-        make "${MAKE_FLAGS[@]}" clean    || yellow "    [~] clean exited non-zero (ignored)"
-        make "${MAKE_FLAGS[@]}" mrproper || yellow "    [~] mrproper exited non-zero (ignored)"
-
-        make "${MAKE_FLAGS[@]}" vendor/lahaina-qgki_defconfig
-        make -j"$(nproc)" "${MAKE_FLAGS[@]}"
-
-        cd "${KDIR}/out"
-        make modules_install INSTALL_MOD_PATH="${PWD}/modules"
-        cd "${KDIR}"
-
-        BUILD_KO_COUNT=$(find "${BUILD_MODULES_DIR}" -type f -name "*.ko" | wc -l)
-        if [ "${BUILD_KO_COUNT}" -eq 0 ]; then
-            red "[✗] Build completed but still no .ko files found — aborting"
-            exit 1
-        fi
-        green "[✓] Modules built → ${BUILD_MODULES_DIR} (${BUILD_KO_COUNT} modules)"
-    else
-        yellow "[*] Found ${BUILD_KO_COUNT} existing modules in ${BUILD_MODULES_DIR}, skipping build"
+        red "[✗] No modules in ${BUILD_MODULES_DIR} — build the kernel first (run without --vendor_dlkm)"
+        exit 1
     fi
+    yellow "[*] Found ${BUILD_KO_COUNT} built modules"
 
-    # Scratch dir — auto-deleted on exit
+    # Scratch dir — auto-deleted on exit, unless --debug keeps it
     SCRATCH=$(mktemp -d "${KDIR}/.vendor_dlkm_scratch_XXXXXX")
-    trap 'rm -rf "${SCRATCH}"' EXIT
+    if [ "${DEBUG}" -eq 0 ]; then
+        trap 'rm -rf "${SCRATCH}"' EXIT
+    else
+        yellow "    [debug] keeping scratch/staging: ${SCRATCH}"
+    fi
 
     EXTRACT_DIR="${SCRATCH}/extracted"
     mkdir -p "${EXTRACT_DIR}"
@@ -232,31 +219,38 @@ if [[ "${MODE}" == "all" || "${MODE}" == "vendor_dlkm" ]]; then
         fi
     done
 
-    # Build EROFS image
-    OUT_IMG="${SCRATCH}/vendor_dlkm_new.img"
+    # SELinux file_contexts — must match stock so modules get vendor_file labels
+    # (matches gen_vendor_dlkm.sh; without this the image has wrong SELinux props)
+    FILE_CONTEXTS="${SCRATCH}/file_contexts"
+    cat <<'EOF' >"${FILE_CONTEXTS}"
+/ u:object_r:vendor_file:s0
+/vendor_dlkm(/.*)? u:object_r:vendor_file:s0
+/vendor_dlkm/etc(/.*)? u:object_r:vendor_configs_file:s0
+EOF
 
+    # Build EROFS image straight to the output (stock is never touched)
     mkfs.erofs \
         --mount-point=/vendor_dlkm \
         --all-root \
+        --file-contexts="${FILE_CONTEXTS}" \
         -zlz4 \
         -b4096 \
         -T1230768000 \
-        "${OUT_IMG}" \
+        "${OUT_VDLKM}" \
         "${EXTRACT_DIR}"
 
+    # Pad up to the stock partition size if smaller
     ORIG_SIZE=$(stat --format="%s" "${STOCK_IMG}")
-    NEW_SIZE=$(stat  --format="%s" "${OUT_IMG}")
-
+    NEW_SIZE=$(stat  --format="%s" "${OUT_VDLKM}")
     if [ "${NEW_SIZE}" -le "${ORIG_SIZE}" ]; then
-        truncate -s "${ORIG_SIZE}" "${OUT_IMG}"
+        truncate -s "${ORIG_SIZE}" "${OUT_VDLKM}"
     else
-        red "[!] WARNING: new image (${NEW_SIZE}B) > original partition (${ORIG_SIZE}B)!"
+        red "[!] WARNING: new image (${NEW_SIZE}B) > stock partition (${ORIG_SIZE}B)!"
     fi
 
-    fsck.erofs "${OUT_IMG}" 2>&1 && green "    EROFS fsck passed" || { red "[✗] EROFS fsck failed!"; exit 1; }
+    fsck.erofs "${OUT_VDLKM}" 2>&1 && green "    EROFS fsck passed" || { red "[✗] EROFS fsck failed!"; exit 1; }
 
-    mv "${OUT_IMG}" "${STOCK_IMG}"
-    green "[✓] vendor_dlkm.img written → ${STOCK_IMG}"
+    green "[✓] vendor_dlkm.img written → ${OUT_VDLKM} (stock left untouched)"
 
 fi
 
@@ -283,34 +277,37 @@ if [[ "${MODE}" == "all" ]]; then
     cp -p "${BUILT_IMAGE}" "${AK3_DIR}/Image"
     green "    Replaced Image"
 
-    # Place vendor_dlkm.img
-    cp -p "${STOCK_IMG}" "${AK3_DIR}/vendor_dlkm.img"
+    # Place vendor_dlkm.img (the freshly generated one, NOT the stock base)
+    if [ ! -f "${OUT_VDLKM}" ]; then
+        red "[✗] Generated vendor_dlkm not found: ${OUT_VDLKM}"
+        exit 1
+    fi
+    cp -p "${OUT_VDLKM}" "${AK3_DIR}/vendor_dlkm.img"
     green "    Placed vendor_dlkm.img"
 
-    # Replace vendor ramdisk modules
+    # Replace vendor ramdisk modules — pulled from the SAME prepared staging
+    # that built vendor_dlkm (already stripped), so ramdisk and vendor_dlkm
+    # carry identical module binaries.
     VR_MODS="${AK3_DIR}/vendor_ramdisk/lib/modules"
     if [ -d "${VR_MODS}" ]; then
-        yellow "    Replacing vendor ramdisk modules..."
+        if [ ! -d "${MODULES_DIR}" ]; then
+            red "[✗] vendor_dlkm staging missing (${MODULES_DIR}) — can't source ramdisk modules"
+            exit 1
+        fi
+        yellow "    Replacing vendor ramdisk modules (from vendor_dlkm staging)..."
         rm -f "${VR_MODS}"/*.ko
         RAMDISK_NAMES=(adsp_loader_dlkm apr_dlkm msm_drm q6_notifier_dlkm q6_pdr_dlkm snd_event_dlkm)
         COPIED=0
         for name in "${RAMDISK_NAMES[@]}"; do
-            ko=$(find "${BUILD_MODULES_DIR}" -name "${name}.ko" | head -1)
-            if [ -n "${ko}" ]; then
-                cp -p "${ko}" "${VR_MODS}/"
-                llvm-objcopy --strip-debug "${VR_MODS}/$(basename "${ko}")"
+            src="${MODULES_DIR}/${name}.ko"
+            if [ -f "${src}" ]; then
+                cp -p "${src}" "${VR_MODS}/"
                 (( COPIED++ )) || true
+            else
+                yellow "    [!] ${name}.ko not in staging — skipped"
             fi
         done
-        if [ "${COPIED}" -eq 0 ]; then
-            yellow "    [!] No named ramdisk modules found — copying and stripping all built modules"
-            find "${BUILD_MODULES_DIR}" -name "*.ko" | while read -r ko; do
-                cp -p "${ko}" "${VR_MODS}/"
-                llvm-objcopy --strip-debug "${VR_MODS}/$(basename "${ko}")"
-            done
-        else
-            green "    Replaced and stripped ${COPIED} vendor ramdisk modules"
-        fi
+        green "    Copied ${COPIED}/${#RAMDISK_NAMES[@]} vendor ramdisk modules (already stripped)"
     else
         yellow "    [!] vendor_ramdisk/lib/modules not found in AK3 dir, skipping"
     fi
@@ -333,5 +330,5 @@ fi
 echo ""
 green "[✓] All done!"
 [[ "${MODE}" == "all" || "${MODE}" == "image" ]]        && echo "    Kernel Image:     ${KDIR}/out/arch/arm64/boot/Image"
-[[ "${MODE}" == "all" || "${MODE}" == "vendor_dlkm" ]]  && echo "    vendor_dlkm.img:  ${STOCK_IMG}"
+[[ "${MODE}" == "all" || "${MODE}" == "vendor_dlkm" ]]  && echo "    vendor_dlkm.img:  ${OUT_VDLKM}  (stock base untouched: ${STOCK_IMG})"
 [[ "${MODE}" == "all" ]]                                 && echo "    Flashable zip:    ${OUT_ZIP}"
