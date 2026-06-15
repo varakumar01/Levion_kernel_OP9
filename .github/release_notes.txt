@@ -1,39 +1,26 @@
-# 📦 Release Notes — April 2026
+# 📦 Changelog — June 2026
 
-> ⚠️ **Flash at your own risk** — Tested on **LineageOS 23.2** only. Other ROMs not guaranteed.
-
-> ⚠️ Only **Android 16** ROMs
-
----
-
-## 🌐 Network Stack
-
-- **BBR v3** — Google's latest congestion control algorithm; improves throughput & reduces latency on lossy/high-bandwidth networks
-- **FQ Qodel Qdisc** — Fair Queuing scheduler; eliminates bufferbloat and ensures low-latency packet scheduling under load
-- **MPTCP** — Multipath TCP; allows simultaneous use of multiple network interfaces (Wi-Fi + Mobile) for better reliability & speed
+> ⚠️ Tested on **LineageOS 23.2 / Android 16** only. Flash at your own risk.
+> 📖 Full feature list: see the **README**.
 
 ---
 
-## ⚡ USB Fast Charge
-- Force fast charging up to **900mA** in USB 2.0 mode
-- Toggle via sysfs:
-```
-  echo 0 /sys/kernel/fast_charge/force_fast_charge  # Disable
-  echo 1 /sys/kernel/fast_charge/force_fast_charge  # Enable
-```
+## 🆕 What's New
 
----
-
-## 🔐 KernelSU Next
-- **KernelSU Next** v3.2.0
-- **SuSFS** v2.1.0
+- **KernelSU Next v3.2.0 + SuSFS v2.1.0** — updated root + root hiding
+- **Baseband Guard** — partition-tamper protection LSM (log-only for now)
+- **USB Fast Charge** — now enabled by default (900mA, USB 2.0)
+- **PELT half-life 16ms** — snappier scheduler/frequency response
+- **Adrenoboost** + **Power-Efficient Workqueues** — GPU boost & battery savings
+- **NTFS3** and **TMPFS XATTR / POSIX ACL**
+- **nftables + ipset + IPv6 NAT** — modern firewall stack
+- **iowait boost fix** + curated **YAKT** scheduler/VM tweaks
 
 ---
 
 ## 📝 Before Flashing
-* Ensure you have a proper backup of **vendor_boot.img**, and **boot.img** before flashing
-* Clean flash is recommended for best stability
+* Back up your stock **boot.img**, **vendor_boot.img** and **vendor_dlkm.img**
+* Clean flash recommended for best stability
 
 ## 🐞 Bug Reports
 - Include logs and clear reproduction steps
-
