@@ -1,6 +1,7 @@
 <div align="center">
 
-# 🔥 Levion Kernel
+#  Ｌｅｖｉｏｎ  Ｋｅｒｎｅｌ
+
 
 **Levion is a battery-first kernel (60/40 balance) with full NetHunter support.**
 Tuned for longer screen-on time, cooler idle temps, and a snappier device — for Internal Injection 😜
@@ -13,6 +14,8 @@ Tuned for longer screen-on time, cooler idle temps, and a snappier device — fo
 
 [![ksuN](https://img.shields.io/badge/ksuN-active-green)](https://github.com/varakumar01/Levion_kernel_OP9/tree/ksuN)
 [![nethunterv2](https://img.shields.io/badge/nethunterv2-active-green)](https://github.com/varakumar01/Levion_kernel_OP9/tree/nethunterv2)
+
+<img width="300" height="300" alt="dragonite" src="https://github.com/user-attachments/assets/ebb3fbcb-eec7-40d7-9116-7b3629ac4b0d" />
 
 </div>
 
