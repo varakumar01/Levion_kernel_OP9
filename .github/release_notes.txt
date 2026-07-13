@@ -7,7 +7,7 @@
 
 ## 🆕 What's New
 
-- **KernelSU Next v3.2.0 + SuSFS v2.1.0** — updated root + root hiding
+- **KernelSU Next v3.3.0 (33214) with syscall table** — updated root + root hiding
 - **Baseband Guard** — partition-tamper protection LSM (log-only for now)
 - **USB Fast Charge** — now enabled by default (900mA, USB 2.0)
 - **PELT half-life 16ms** — snappier scheduler/frequency response
