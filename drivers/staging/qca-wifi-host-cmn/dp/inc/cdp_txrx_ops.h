@@ -835,6 +835,10 @@ struct cdp_mon_ops {
 	QDF_STATUS (*txrx_reset_monitor_mode)
 		(ol_txrx_soc_handle soc, uint8_t pdev_id, u_int8_t smart_monitor);
 
+	/*txrx_refresh_monitor_mode: Reapply the active monitor ring filters */
+	QDF_STATUS (*txrx_refresh_monitor_mode)
+		(ol_txrx_soc_handle soc, uint8_t pdev_id, uint8_t vdev_id);
+
 	QDF_STATUS (*txrx_deliver_tx_mgmt)
 		(struct cdp_soc_t *cdp_soc, uint8_t pdev_id, qdf_nbuf_t nbuf);
 
