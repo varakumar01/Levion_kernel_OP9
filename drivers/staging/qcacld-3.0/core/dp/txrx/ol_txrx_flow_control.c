@@ -55,6 +55,9 @@
 static void
 ol_tx_register_global_mgmt_pool(struct ol_txrx_pdev_t *pdev)
 {
+	if (pdev->mgmt_pool)
+		return;
+
 	pdev->mgmt_pool = ol_tx_create_flow_pool(TX_FLOW_MGMT_POOL_ID,
 						 TX_FLOW_MGMT_POOL_SIZE);
 	if (!pdev->mgmt_pool)
@@ -70,7 +73,11 @@ ol_tx_register_global_mgmt_pool(struct ol_txrx_pdev_t *pdev)
 static void
 ol_tx_deregister_global_mgmt_pool(struct ol_txrx_pdev_t *pdev)
 {
+	if (!pdev->mgmt_pool)
+		return;
+
 	ol_tx_dec_pool_ref(pdev->mgmt_pool, false);
+	pdev->mgmt_pool = NULL;
 }
 #else
 static inline void
@@ -104,6 +111,15 @@ bool ol_txrx_fwd_desc_thresh_check(struct ol_txrx_vdev_t *txrx_vdev)
 	return enough_desc_flag;
 }
 
+static bool ol_tx_needs_global_mgmt_pool(void)
+{
+#ifdef FEATURE_FRAME_INJECTION_SUPPORT
+	return true;
+#else
+	return !ol_tx_get_is_mgmt_over_wmi_enabled();
+#endif
+
+}
 /**
  * ol_tx_set_desc_global_pool_size() - set global pool size
  * @num_msdu_desc: total number of descriptors
@@ -126,7 +142,7 @@ void ol_tx_set_desc_global_pool_size(uint32_t num_msdu_desc)
 		return;
 	}
 	pdev->num_msdu_desc = num_msdu_desc;
-	if (!ol_tx_get_is_mgmt_over_wmi_enabled())
+	if (ol_tx_needs_global_mgmt_pool())
 		pdev->num_msdu_desc += TX_FLOW_MGMT_POOL_SIZE;
 	ol_txrx_info_high("Global pool size: %d\n", pdev->num_msdu_desc);
 }
@@ -166,7 +182,7 @@ void ol_tx_register_flow_control(struct ol_txrx_pdev_t *pdev)
 	qdf_spinlock_create(&pdev->tx_desc.flow_pool_list_lock);
 	TAILQ_INIT(&pdev->tx_desc.flow_pool_list);
 
-	if (!ol_tx_get_is_mgmt_over_wmi_enabled())
+	if (ol_tx_needs_global_mgmt_pool())
 		ol_tx_register_global_mgmt_pool(pdev);
 }
 
@@ -182,7 +198,7 @@ void ol_tx_deregister_flow_control(struct ol_txrx_pdev_t *pdev)
 	struct ol_tx_flow_pool_t *pool = NULL;
 	struct cdp_soc_t *soc;
 
-	if (!ol_tx_get_is_mgmt_over_wmi_enabled())
+	if (ol_tx_needs_global_mgmt_pool())
 		ol_tx_deregister_global_mgmt_pool(pdev);
 
 	soc = cds_get_context(QDF_MODULE_ID_SOC);

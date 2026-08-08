@@ -4867,6 +4867,10 @@ wlan_mlme_get_monitor_mode_concurrency(struct wlan_objmgr_psoc *psoc)
 
 bool wlan_mlme_is_sta_mon_conc_supported(struct wlan_objmgr_psoc *psoc)
 {
+#ifdef FEATURE_FRAME_INJECTION_SUPPORT
+	/* Standard monitor VIFs need the complete STA + monitor lifecycle. */
+	return true;
+#endif
 	if (wlan_mlme_get_monitor_mode_concurrency(psoc) ==
 						MONITOR_MODE_CONC_STA_SCAN_MON)
 		return true;
