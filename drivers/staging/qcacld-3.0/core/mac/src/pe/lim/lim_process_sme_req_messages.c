@@ -5642,8 +5642,19 @@ static void lim_process_sme_channel_change_request(struct mac_context *mac_ctx,
 
 	if (session_entry->curr_op_freq == target_freq &&
 	    session_entry->ch_width == ch_change_req->ch_width) {
+		struct scheduler_msg mon_msg = {0};
+
 		pe_err("Target channel and mode is same as current channel and mode channel freq %d and mode %d",
 		       session_entry->curr_op_freq, session_entry->ch_width);
+		/* A monitor no-op still has a synchronous cfg80211 waiter. */
+		if (session_entry->bssType == eSIR_MONITOR_MODE) {
+			mon_msg.type = eWNI_SME_MONITOR_MODE_VDEV_UP;
+			mon_msg.bodyval = session_entry->vdev_id;
+			if (QDF_IS_STATUS_ERROR(scheduler_post_message(
+				    QDF_MODULE_ID_PE, QDF_MODULE_ID_SME,
+				    QDF_MODULE_ID_SME, &mon_msg)))
+				pe_err("Failed to acknowledge unchanged monitor channel");
+		}
 		return;
 	}
 
