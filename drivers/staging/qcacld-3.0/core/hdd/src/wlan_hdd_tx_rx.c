@@ -33,6 +33,7 @@
 #include <linux/skbuff.h>
 #include <linux/etherdevice.h>
 #include <linux/if_ether.h>
+#include <asm/unaligned.h>
 #include <linux/inetdevice.h>
 #include <cds_sched.h>
 #include <cds_utils.h>
@@ -40,6 +41,7 @@
 #include <wlan_hdd_p2p.h>
 #include <linux/wireless.h>
 #include <net/cfg80211.h>
+#include <net/ieee80211_radiotap.h>
 #include "sap_api.h"
 #include "wlan_hdd_wmm.h"
 #include "wlan_hdd_tdls.h"
@@ -54,6 +56,7 @@
 #include "wlan_hdd_rx_monitor.h"
 #include "wlan_hdd_power.h"
 #include "wlan_hdd_cfg80211.h"
+#include "wlan_hdd_main.h"
 #include <wlan_hdd_tsf.h>
 #include <net/tcp.h>
 #include "wma_api.h"
@@ -974,6 +977,161 @@ static void hdd_mark_icmp_req_to_fw(struct hdd_context *hdd_ctx,
 }
 #endif
 
+#ifdef FEATURE_FRAME_INJECTION_SUPPORT
+#define HDD_IEEE80211_FCS_LEN 4
+
+static bool hdd_monitor_tx_dev(struct hdd_adapter *adapter,
+			       struct net_device *dev)
+{
+	if (!adapter || !dev)
+		return false;
+
+	return hdd_get_conparam() == QDF_GLOBAL_MONITOR_MODE ||
+	       wlan_hdd_is_session_type_monitor(adapter->device_mode) ||
+	       dev->type == ARPHRD_IEEE80211_RADIOTAP;
+}
+
+static bool hdd_radiotap_flags(const struct sk_buff *skb, uint16_t rtap_len,
+			       uint8_t *flags)
+{
+	const struct ieee80211_radiotap_header *rtap;
+	uint32_t present;
+	uint32_t first_present;
+	unsigned int offset;
+
+	*flags = 0;
+
+	if (rtap_len < sizeof(*rtap) || rtap_len > skb->len)
+		return false;
+
+	rtap = (const struct ieee80211_radiotap_header *)skb->data;
+	first_present = le32_to_cpu(rtap->it_present);
+	present = first_present;
+	offset = sizeof(*rtap);
+
+	while (present & BIT(IEEE80211_RADIOTAP_EXT)) {
+		if (offset + sizeof(uint32_t) > rtap_len)
+			return false;
+
+		present = get_unaligned_le32(skb->data + offset);
+		offset += sizeof(uint32_t);
+	}
+
+	if (!(first_present & BIT(IEEE80211_RADIOTAP_FLAGS)))
+		return true;
+
+	if (first_present & BIT(IEEE80211_RADIOTAP_TSFT)) {
+		offset = ALIGN(offset, 8);
+		if (offset + sizeof(uint64_t) > rtap_len)
+			return false;
+		offset += sizeof(uint64_t);
+	}
+
+	if (offset + sizeof(uint8_t) > rtap_len)
+		return false;
+
+	*flags = skb->data[offset];
+	return true;
+}
+
+static bool hdd_strip_radiotap(struct sk_buff *skb)
+{
+	const struct ieee80211_radiotap_header *rtap;
+	uint16_t rtap_len;
+	uint8_t rtap_flags;
+
+	if (skb->len < sizeof(*rtap))
+		return true;
+
+	rtap = (const struct ieee80211_radiotap_header *)skb->data;
+	if (rtap->it_version != PKTHDR_RADIOTAP_VERSION)
+		return true;
+
+	rtap_len = le16_to_cpu(rtap->it_len);
+	if (rtap_len < sizeof(*rtap) || rtap_len >= skb->len) {
+		hdd_dp_warn_rl("monitor tx: invalid radiotap len %u skb len %u",
+			       rtap_len, skb->len);
+		return false;
+	}
+
+	if (!hdd_radiotap_flags(skb, rtap_len, &rtap_flags)) {
+		hdd_dp_warn_rl("monitor tx: failed to parse radiotap header");
+		return false;
+	}
+
+	skb_pull(skb, rtap_len);
+
+	if (rtap_flags & IEEE80211_RADIOTAP_F_FCS) {
+		if (skb->len <= HDD_IEEE80211_FCS_LEN)
+			return false;
+
+		skb_trim(skb, skb->len - HDD_IEEE80211_FCS_LEN);
+	}
+
+	return true;
+}
+
+static bool hdd_injection_frame_is_valid(const struct sk_buff *skb)
+{
+	const struct ieee80211_hdr *hdr;
+	unsigned int hdr_len;
+
+	/* Management frames use the normal three-address, 24-byte header. */
+	if (skb->len < sizeof(struct ieee80211_hdr_3addr))
+		return false;
+
+	hdr = (const struct ieee80211_hdr *)skb->data;
+	hdr_len = ieee80211_hdrlen(hdr->frame_control);
+
+	if (hdr_len < sizeof(struct ieee80211_hdr_3addr) || skb->len < hdr_len)
+		return false;
+
+	return ieee80211_is_mgmt(hdr->frame_control);
+}
+
+static void hdd_monitor_mode_tx_inject(struct hdd_adapter *adapter,
+				       struct net_device *dev,
+				       struct sk_buff *skb)
+{
+	QDF_STATUS status;
+
+	if (!adapter) {
+		kfree_skb(skb);
+		return;
+	}
+
+	if (!hdd_strip_radiotap(skb)) {
+		kfree_skb(skb);
+		return;
+	}
+
+	if (!hdd_injection_frame_is_valid(skb)) {
+		hdd_dp_warn_rl("monitor tx: dropping invalid injection frame len %u",
+			       skb->len);
+		kfree_skb(skb);
+		return;
+	}
+
+	/*
+	 * Packet sockets leave their own data in skb->cb.  The DP exception
+	 * path interprets bytes in that area as QDF flags, including the
+	 * packet-to-firmware bit, so start monitor frames with a clean QDF CB.
+	 */
+	qdf_nbuf_reset_ctxt((qdf_nbuf_t)skb);
+
+	status = wma_injection_tx((qdf_nbuf_t)skb,
+				  adapter->vdev_id);
+	if (QDF_IS_STATUS_ERROR(status)) {
+		hdd_dp_warn_rl("monitor tx: injection failed vdev %u status %d",
+			       adapter->vdev_id, status);
+		kfree_skb(skb);
+		return;
+	}
+
+	netif_trans_update(dev);
+}
+#endif /* FEATURE_FRAME_INJECTION_SUPPORT */
+
 /**
  * __hdd_hard_start_xmit() - Transmit a frame
  * @skb: pointer to OS packet (sk_buff)
@@ -995,7 +1153,8 @@ static void __hdd_hard_start_xmit(struct sk_buff *skb,
 	enum sme_qos_wmmuptype up;
 	struct hdd_adapter *adapter = WLAN_HDD_GET_PRIV_PTR(dev);
 	bool granted;
-	struct hdd_station_ctx *sta_ctx = &adapter->session.station;
+	struct hdd_tx_rx_stats *stats;
+	struct hdd_station_ctx *sta_ctx;
 	struct qdf_mac_addr mac_addr;
 	struct qdf_mac_addr mac_addr_tx_allowed = QDF_MAC_ADDR_ZERO_INIT;
 	uint8_t pkt_type = 0;
@@ -1006,6 +1165,16 @@ static void __hdd_hard_start_xmit(struct sk_buff *skb,
 	enum qdf_proto_subtype subtype = QDF_PROTO_INVALID;
 	bool is_eapol = false;
 	bool is_dhcp = false;
+
+#ifdef FEATURE_FRAME_INJECTION_SUPPORT
+	if (hdd_monitor_tx_dev(adapter, dev)) {
+		hdd_monitor_mode_tx_inject(adapter, dev, skb);
+		return;
+	}
+#endif
+	/* Monitor TX does not use the normal station datapath state. */
+	stats = &adapter->hdd_stats.tx_rx_stats;
+	sta_ctx = &adapter->session.station;
 
 #ifdef QCA_WIFI_FTM
 	if (hdd_get_conparam() == QDF_GLOBAL_FTM_MODE) {
