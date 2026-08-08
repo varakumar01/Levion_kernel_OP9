@@ -246,6 +246,7 @@ enum hdd_adapter_flags {
 	WMM_INIT_DONE,
 	SOFTAP_BSS_STARTED,
 	DEVICE_IFACE_OPENED,
+	DEVICE_IFACE_FROZEN,
 	SOFTAP_INIT_DONE,
 	VENDOR_ACS_RESPONSE_PENDING,
 };
@@ -1293,6 +1294,8 @@ struct hdd_adapter {
 	bool disconnection_in_progress;
 	qdf_mutex_t disconnection_status_lock;
 	unsigned long event_flags;
+	struct work_struct defrost_work;
+	qdf_atomic_t defrost_scheduled;
 
 	/**Device TX/RX statistics*/
 	struct net_device_stats stats;
@@ -2251,6 +2254,12 @@ struct hdd_context {
 	bool is_therm_stats_in_progress;
 #endif
 	uint64_t bw_vote_time;
+#ifdef FEATURE_FRAME_INJECTION_SUPPORT
+	qdf_work_t monitor_restore_work;
+	enum hdd_work_status monitor_restore_work_status;
+	char monitor_restore_iface[IFNAMSIZ];
+	bool monitor_restore_pending;
+#endif
 };
 
 /**
@@ -4915,8 +4924,15 @@ static inline void hdd_sta_destroy_ctx_all(struct hdd_context *hdd_ctx)
 
 #ifdef FEATURE_WLAN_RESIDENT_DRIVER
 extern char *country_code;
+#endif
+/**
+ * Global access to con_mode and its ops
+ * moved out of FEATURE_WLAN_RESIDENT_DRIVER to allow
+ * monitor mode switching.
+ */
 extern int con_mode;
 extern const struct kernel_param_ops con_mode_ops;
+#ifdef FEATURE_WLAN_RESIDENT_DRIVER
 extern int con_mode_ftm;
 extern const struct kernel_param_ops con_mode_ftm_ops;
 #endif
