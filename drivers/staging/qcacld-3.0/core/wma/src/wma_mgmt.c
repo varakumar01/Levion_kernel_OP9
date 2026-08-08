@@ -2504,6 +2504,9 @@ static int wma_process_mgmt_tx_completion(tp_wma_handle wma_handle,
 		return -EINVAL;
 	}
 
+	if (wma_injection_complete(wma_handle, desc_id, status))
+		return 0;
+
 	wma_debug("status: %s wmi_desc_id: %d",
 		  wma_get_status_str(status), desc_id);
 

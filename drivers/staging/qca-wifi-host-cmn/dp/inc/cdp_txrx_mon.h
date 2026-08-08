@@ -45,6 +45,18 @@ static inline QDF_STATUS cdp_reset_monitor_mode(ol_txrx_soc_handle soc,
 							  smart_monitor);
 }
 
+static inline QDF_STATUS
+cdp_refresh_monitor_mode(ol_txrx_soc_handle soc, uint8_t pdev_id,
+			 uint8_t vdev_id)
+{
+	if (!soc || !soc->ops || !soc->ops->mon_ops ||
+	    !soc->ops->mon_ops->txrx_refresh_monitor_mode)
+		return QDF_STATUS_E_INVAL;
+
+	return soc->ops->mon_ops->txrx_refresh_monitor_mode(soc, pdev_id,
+							  vdev_id);
+}
+
 /**
  * cdp_deliver_tx_mgmt() - Deliver mgmt frame for tx capture
  * @soc: Datapath SOC handle
