@@ -878,6 +878,8 @@ ol_txrx_pdev_attach(ol_txrx_soc_handle soc,
 		goto fail0;
 	}
 
+	pdev->is_mgmt_over_wmi_enabled = 0;
+
 	/* init LL/HL cfg here */
 	pdev->cfg.is_high_latency = ol_cfg_is_high_latency(cfg_pdev);
 	/*
@@ -2956,7 +2958,7 @@ QDF_STATUS ol_txrx_peer_state_update(struct cdp_soc_t *soc_hdl,
 	struct ol_txrx_peer_t *peer;
 	int    peer_ref_cnt;
 
-	if (qdf_unlikely(!pdev)) {
+	if (qdf_unlikely(!pdev || !pdev->monitor_vdev))
 		ol_txrx_err("Pdev is NULL");
 		qdf_assert(0);
 		return QDF_STATUS_E_INVAL;
