@@ -344,10 +344,16 @@ ol_tx_desc_alloc_wrapper(struct ol_txrx_pdev_t *pdev,
 			 struct ol_txrx_vdev_t *vdev,
 			 struct ol_txrx_msdu_info_t *msdu_info)
 {
-	if (qdf_unlikely(msdu_info->htt.info.frame_type == htt_pkt_type_mgmt))
+	if (qdf_unlikely(msdu_info->htt.info.frame_type == htt_pkt_type_mgmt)) {
+		if (!pdev->mgmt_pool) {
+			ol_txrx_err("management tx pool unavailable");
+			return NULL;
+		}
+
 		return ol_tx_desc_alloc(pdev, vdev, pdev->mgmt_pool);
-	else
-		return ol_tx_desc_alloc(pdev, vdev, vdev->pool);
+	}
+
+	return ol_tx_desc_alloc(pdev, vdev, vdev->pool);
 }
 #else
 struct ol_tx_desc_t *
