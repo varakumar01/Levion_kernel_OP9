@@ -847,6 +847,15 @@ void dp_mon_filter_setup_mon_mode(struct dp_pdev *pdev)
 
 	filter.valid = true;
 	dp_mon_filter_set_mon_cmn(pdev, &filter);
+#ifdef FEATURE_FRAME_INJECTION_SUPPORT
+	/* Monitor buffer ring frame filter overrides */
+	if (soc->hal_soc &&
+	    (hal_get_target_type(soc->hal_soc) == TARGET_TYPE_QCA6490 ||
+	     hal_get_target_type(soc->hal_soc) == TARGET_TYPE_QCA6390)) {
+		DP_MON_FILTER_SET(&filter.tlv_filter, FILTER_FP_MGMT, FILTER_MGMT_ALL);
+		DP_MON_FILTER_SET(&filter.tlv_filter, FILTER_MO_MGMT, FILTER_MGMT_ALL);
+	}
+#endif
 	dp_mon_filter_show_filter(pdev, mode, &filter);
 
 	srng_type = ((soc->wlan_cfg_ctx->rxdma1_enable) ?
@@ -862,6 +871,15 @@ void dp_mon_filter_setup_mon_mode(struct dp_pdev *pdev)
 	/* Enabled the filter */
 	filter.valid = true;
 	dp_mon_filter_set_status_cmn(pdev, &filter);
+#ifdef FEATURE_FRAME_INJECTION_SUPPORT
+	/* Monitor status ring frame filter overrides */
+	if (soc->hal_soc &&
+	    (hal_get_target_type(soc->hal_soc) == TARGET_TYPE_QCA6490 ||
+	     hal_get_target_type(soc->hal_soc) == TARGET_TYPE_QCA6390)) {
+		DP_MON_FILTER_SET(&filter.tlv_filter, FILTER_FP_MGMT, FILTER_MGMT_ALL);
+		DP_MON_FILTER_SET(&filter.tlv_filter, FILTER_MO_MGMT, FILTER_MGMT_ALL);
+	}
+#endif
 	dp_mon_filter_show_filter(pdev, mode, &filter);
 
 	/* Store the above filter */
