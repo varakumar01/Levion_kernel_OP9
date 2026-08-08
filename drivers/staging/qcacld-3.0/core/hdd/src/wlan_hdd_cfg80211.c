@@ -30,6 +30,8 @@
 #include <linux/init.h>
 #include <linux/etherdevice.h>
 #include <linux/wireless.h>
+#include <linux/cred.h>
+#include <linux/uidgid.h>
 #include "osif_sync.h"
 #include <wlan_hdd_includes.h>
 #include <net/arp.h>
@@ -100,6 +102,7 @@
 
 #include <cdp_txrx_cmn.h>
 #include <cdp_txrx_misc.h>
+#include <cdp_txrx_mon.h>
 #include <qca_vendor.h>
 #include "wlan_pmo_ucfg_api.h"
 #include "os_if_wifi_pos.h"
@@ -166,6 +169,10 @@
 #include "wlan_roam_debug.h"
 #include "wlan_pkt_capture_ucfg_api.h"
 #include "os_if_pkt_capture.h"
+
+/* Con_mode values (STA / MONITOR) */
+#define CON_MODE_STA		0
+#define CON_MODE_MONITOR	4
 
 #define g_mode_rates_size (12)
 #define a_mode_rates_size (8)
@@ -18315,6 +18322,44 @@ static bool hdd_is_ap_mode(enum QDF_OPMODE mode)
 	}
 }
 
+/* Deferred con_mode switch with HW sync */
+static atomic_t hw_sync_scheduled = ATOMIC_INIT(0);
+static void do_hw_sync_work(struct work_struct *work);
+static DECLARE_WORK(monitor_work, do_hw_sync_work);
+static inline void request_hw_sync(enum QDF_OPMODE new_mode)
+{
+	int new_val = (new_mode == QDF_MONITOR_MODE) ?
+			CON_MODE_MONITOR : CON_MODE_STA;
+
+	WRITE_ONCE(con_mode, new_val);
+
+	if (atomic_xchg(&hw_sync_scheduled, 1) == 0)
+		queue_work(system_unbound_wq, &monitor_work);
+}
+
+static void do_hw_sync_work(struct work_struct *work)
+{
+	struct kernel_param kp = {
+		.name = "con_mode",
+		.ops  = &con_mode_ops,
+		.arg  = &con_mode,
+	};
+	char mode_str[16];
+	int val;
+
+	val = READ_ONCE(con_mode);
+	snprintf(mode_str, sizeof(mode_str), "%d", val);
+	pr_info("WLAN: Syncing HW to con_mode '%s'\n", mode_str);
+
+	if (con_mode_ops.set)
+		con_mode_ops.set(mode_str, &kp);
+	else
+		pr_warn("WLAN: con_mode_ops.set is NULL\n");
+
+	if (atomic_xchg(&hw_sync_scheduled, 0) == 1)
+		queue_work(system_unbound_wq, &monitor_work);
+}
+
 /**
  * __wlan_hdd_cfg80211_change_iface() - change interface cfg80211 op
  * @wiphy: Pointer to the wiphy structure
@@ -18384,6 +18429,24 @@ static int __wlan_hdd_cfg80211_change_iface(struct wiphy *wiphy,
 	    adapter->device_mode != QDF_P2P_CLIENT_MODE)) {
 		if (hdd_max_sta_vdev_count_reached(adapter->hdd_ctx))
 			return -EINVAL;
+	}
+
+	if (adapter->device_mode == QDF_MONITOR_MODE &&
+	    new_mode == QDF_MONITOR_MODE) {
+		ndev->ieee80211_ptr->iftype = type;
+		hdd_exit();
+		return 0;
+	}
+
+	/* Restrict monitor mode exit to root; restart psoc on change */
+	if ((adapter->device_mode == QDF_MONITOR_MODE ||
+	     hdd_get_conparam() == QDF_GLOBAL_MONITOR_MODE) &&
+	    new_mode != QDF_MONITOR_MODE &&
+	    !uid_eq(current_euid(), GLOBAL_ROOT_UID)) {
+		hdd_warn_rl("rejecting monitor->%s iface change from %s",
+			    qdf_opmode_str(new_mode), current->comm);
+		hdd_exit();
+		return -EOPNOTSUPP;
 	}
 
 	errno = hdd_trigger_psoc_idle_restart(hdd_ctx);
@@ -18483,6 +18546,7 @@ static int __wlan_hdd_cfg80211_change_iface(struct wiphy *wiphy,
 
 	ndev->ieee80211_ptr->iftype = type;
 	hdd_lpass_notify_mode_change(adapter);
+	request_hw_sync(new_mode);
 err:
 	/* Set bitmask based on updated value */
 	policy_mgr_set_concurrency_mode(hdd_ctx->psoc, adapter->device_mode);
@@ -24897,10 +24961,21 @@ static int __wlan_hdd_cfg80211_set_mon_ch(struct wiphy *wiphy,
 	}
 	adapter->monitor_mode_vdev_up_in_progress = true;
 
+	/* Keep queued injection frames out of the old channel transition. */
+	status = wma_injection_channel_change_begin(
+			adapter->vdev_id,
+			chandef->chan->center_freq);
+	if (QDF_IS_STATUS_ERROR(status)) {
+		hdd_warn("failed to quiesce monitor injection: %d", status);
+		adapter->monitor_mode_vdev_up_in_progress = false;
+		return qdf_status_to_os_return(status);
+	}
+
 	status = sme_roam_channel_change_req(mac_handle, bssid,
 					     &roam_profile.ch_params,
 					     &roam_profile);
 	if (status) {
+		wma_injection_channel_change_end();
 		hdd_err_rl("Failed to set sme_RoamChannel for monitor mode status: %d",
 			   status);
 		adapter->monitor_mode_vdev_up_in_progress = false;
@@ -24913,6 +24988,7 @@ static int __wlan_hdd_cfg80211_set_mon_ch(struct wiphy *wiphy,
 				       &adapter->qdf_monitor_mode_vdev_up_event,
 					WLAN_MONITOR_MODE_VDEV_UP_EVT);
 	if (QDF_IS_STATUS_ERROR(status)) {
+		wma_injection_channel_change_end();
 		hdd_err_rl("monitor vdev up event time out vdev id: %d",
 			  adapter->vdev_id);
 		if (adapter->qdf_monitor_mode_vdev_up_event.force_set)
@@ -24930,6 +25006,16 @@ static int __wlan_hdd_cfg80211_set_mon_ch(struct wiphy *wiphy,
 		adapter->monitor_mode_vdev_up_in_progress = false;
 		return qdf_status_to_os_return(status);
 	}
+
+	/* Helper vdev setup rewrites the shared RXDMA ring selection. */
+	status = cdp_refresh_monitor_mode(
+		 cds_get_context(QDF_MODULE_ID_SOC), OL_TXRX_PDEV_ID,
+		 adapter->vdev_id);
+	if (QDF_IS_STATUS_ERROR(status))
+		hdd_warn("failed to restore monitor RX filters: %d", status);
+	else
+		msleep(20);
+	wma_injection_channel_change_end();
 
 	hdd_exit();
 
@@ -25768,6 +25854,49 @@ bool hdd_is_legacy_connection(struct hdd_adapter *adapter)
 		return false;
 }
 
+#ifdef FEATURE_MONITOR_MODE_SUPPORT
+static int
+wlan_hdd_cfg80211_get_channel_mon(struct wiphy *wiphy,
+				  struct cfg80211_chan_def *chandef,
+				  struct hdd_adapter *adapter)
+{
+	struct wlan_objmgr_vdev *vdev;
+	struct wlan_channel chan_info = {0};
+	struct wlan_channel *des_chan;
+
+	vdev = hdd_objmgr_get_vdev(adapter);
+	if (vdev) {
+		des_chan = wlan_vdev_mlme_get_des_chan(vdev);
+		if (des_chan && des_chan->ch_freq)
+			qdf_mem_copy(&chan_info, des_chan, sizeof(chan_info));
+		hdd_objmgr_put_vdev(vdev);
+	}
+
+	if (!chan_info.ch_freq && adapter->mon_chan_freq) {
+		chan_info.ch_freq = adapter->mon_chan_freq;
+		chan_info.ch_cfreq1 = adapter->mon_chan_freq;
+		chan_info.ch_width = adapter->mon_bandwidth;
+	}
+
+	if (!chan_info.ch_freq)
+		return -ENODATA;
+
+	chandef->chan = ieee80211_get_channel(wiphy, chan_info.ch_freq);
+	if (!chandef->chan)
+		return -EINVAL;
+
+	chandef->center_freq1 = chan_info.ch_cfreq1 ?: chan_info.ch_freq;
+	chandef->center_freq2 = chan_info.ch_cfreq2;
+	chandef->width = chan_info.ch_width;
+
+	hdd_debug("monitor freq:%d, ch_width:%d, c_freq1:%d, c_freq2:%d",
+		  chan_info.ch_freq, chandef->width, chandef->center_freq1,
+		  chandef->center_freq2);
+
+	return 0;
+}
+#endif
+
 static int __wlan_hdd_cfg80211_get_channel(struct wiphy *wiphy,
 					   struct wireless_dev *wdev,
 					   struct cfg80211_chan_def *chandef)
@@ -25887,11 +26016,20 @@ static int wlan_hdd_cfg80211_get_channel(struct wiphy *wiphy,
 					 struct cfg80211_chan_def *chandef)
 {
 	int errno;
+	struct hdd_adapter *adapter = WLAN_HDD_GET_PRIV_PTR(wdev->netdev);
 	struct osif_vdev_sync *vdev_sync;
 
 	errno = osif_vdev_sync_op_start(wdev->netdev, &vdev_sync);
 	if (errno)
 		return errno;
+
+#ifdef FEATURE_MONITOR_MODE_SUPPORT
+	if (adapter && adapter->device_mode == QDF_MONITOR_MODE) {
+		errno = wlan_hdd_cfg80211_get_channel_mon(wiphy, chandef, adapter);
+		osif_vdev_sync_op_stop(vdev_sync);
+		return errno;
+	}
+#endif
 
 	errno = __wlan_hdd_cfg80211_get_channel(wiphy, wdev, chandef);
 
