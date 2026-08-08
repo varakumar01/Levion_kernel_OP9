@@ -34,6 +34,8 @@
 #include <linux/etherdevice.h>
 #include <linux/firmware.h>
 #include <linux/kernel.h>
+#include <linux/cred.h>
+#include <linux/uidgid.h>
 #include <wlan_hdd_tx_rx.h>
 #include <wni_api.h>
 #include <wlan_hdd_cfg.h>
@@ -2902,6 +2904,11 @@ static int __hdd_mon_open(struct net_device *dev)
 	hdd_enter_dev(dev);
 
 	if (test_bit(DEVICE_IFACE_OPENED, &adapter->event_flags)) {
+#ifdef FEATURE_FRAME_INJECTION_SUPPORT
+		wlan_hdd_netif_queue_control(
+			adapter, WLAN_START_ALL_NETIF_QUEUE_N_CARRIER,
+			WLAN_CONTROL_PATH);
+#endif
 		hdd_debug_rl("Monitor interface is already up");
 		return 0;
 	}
@@ -2909,6 +2916,17 @@ static int __hdd_mon_open(struct net_device *dev)
 	ret = wlan_hdd_validate_context(hdd_ctx);
 	if (ret)
 		return ret;
+
+	/* Ignore duplicate monitor ifup; ensure queues/carrier are up */
+	if (hdd_get_conparam() == QDF_GLOBAL_MONITOR_MODE &&
+	    test_bit(DEVICE_IFACE_OPENED, &adapter->event_flags)) {
+		wlan_hdd_netif_queue_control(adapter,
+					     WLAN_START_ALL_NETIF_QUEUE_N_CARRIER,
+					     WLAN_CONTROL_PATH);
+		hdd_warn_rl("Ignoring duplicate monitor ifup from %s (queues/carrier forced up)",
+			    current->comm);
+		return 0;
+	}
 
 	hdd_mon_mode_ether_setup(dev);
 
@@ -2932,7 +2950,6 @@ static int __hdd_mon_open(struct net_device *dev)
 			hdd_err("hdd_start_adapters() successful !");
 		}
 		hdd_mon_turn_off_ps_and_wow(hdd_ctx);
-		set_bit(DEVICE_IFACE_OPENED, &adapter->event_flags);
 	}
 
 	if (con_mode != QDF_GLOBAL_MONITOR_MODE &&
@@ -2956,7 +2973,18 @@ static int __hdd_mon_open(struct net_device *dev)
 					  PLD_BUS_WIDTH_VERY_HIGH);
 	}
 
-	return ret;
+	if (ret)
+		return ret;
+
+	set_bit(DEVICE_IFACE_OPENED, &adapter->event_flags);
+	wlan_hdd_netif_queue_control(adapter,
+				     WLAN_START_ALL_NETIF_QUEUE_N_CARRIER,
+				     WLAN_CONTROL_PATH);
+	hdd_warn_rl("monitor open complete: if=%s carrier=%u running=%u pause_map=0x%x",
+		    dev->name, netif_carrier_ok(dev) ? 1 : 0,
+		    netif_running(dev) ? 1 : 0, adapter->pause_map);
+
+	return 0;
 }
 
 /**
@@ -4404,6 +4432,17 @@ static void hdd_populate_wifi_pos_cfg(struct hdd_context *hdd_ctx)
 }
 #endif
 
+/* Asynchronous Wi-Fi adapter "defrost": clears FROZEN and opens the interface */
+static void hdd_defrost_worker(struct work_struct *work)
+{
+	struct hdd_adapter *adapter = container_of(work, struct hdd_adapter, defrost_work);
+
+	hdd_err("WLAN: Async defrosting in progress...");
+	clear_bit(DEVICE_IFACE_FROZEN, &adapter->event_flags);
+	set_bit(DEVICE_IFACE_OPENED, &adapter->event_flags);
+	qdf_atomic_set(&adapter->defrost_scheduled, 0);
+}
+
 /**
  * __hdd_open() - HDD Open function
  * @dev:	Pointer to net_device structure
@@ -4433,6 +4472,20 @@ static int __hdd_open(struct net_device *dev)
 	if (cds_is_driver_recovering()) {
 		hdd_err("WLAN is currently recovering; Please try again.");
 		return -EBUSY;
+	}
+
+	/* Root can defrost a frozen interface */
+	if (test_bit(DEVICE_IFACE_FROZEN, &adapter->event_flags)) {
+		if (!uid_eq(current_euid(), GLOBAL_ROOT_UID)) {
+			hdd_err("WLAN: Non-root defrost attempt denied");
+			return -EPERM;
+		}
+		if (atomic_xchg((atomic_t *)&adapter->defrost_scheduled, 1))
+			return 0;
+
+		hdd_err("WLAN: Scheduling defrost.");
+		schedule_work(&adapter->defrost_work);
+		return 0;
 	}
 
 	/*
@@ -4532,10 +4585,34 @@ int hdd_stop_no_trans(struct net_device *dev)
 	if (ret)
 		return ret;
 
+	/* Handle monitor-mode ifdown: ignore for non-root, allow for root */
+	if (hdd_get_conparam() == QDF_GLOBAL_MONITOR_MODE &&
+	    !uid_eq(current_euid(), GLOBAL_ROOT_UID) &&
+	    (wlan_hdd_is_session_type_monitor(adapter->device_mode) ||
+	     dev->type == ARPHRD_IEEE80211_RADIOTAP)) {
+		hdd_warn_rl("Ignoring monitor ifdown from %s", current->comm);
+		return 0;
+	}
+
+	if (hdd_get_conparam() == QDF_GLOBAL_MONITOR_MODE &&
+	    (wlan_hdd_is_session_type_monitor(adapter->device_mode) ||
+	     dev->type == ARPHRD_IEEE80211_RADIOTAP)) {
+		hdd_warn_rl("monitor ifdown request accepted from %s", current->comm);
+	}
+
 	/* Nothing to be done if the interface is not opened */
 	if (false == test_bit(DEVICE_IFACE_OPENED, &adapter->event_flags)) {
 		hdd_err("NETDEV Interface is not OPENED");
 		return -ENODEV;
+	}
+
+	/* Root can freeze the interface */
+	if (uid_eq(current_euid(), GLOBAL_ROOT_UID)) {
+		hdd_err("Freezing interface.");
+		cancel_work_sync(&adapter->defrost_work);
+		qdf_atomic_set(&adapter->defrost_scheduled, 0);
+		set_bit(DEVICE_IFACE_FROZEN, &adapter->event_flags);
+		return 0;
 	}
 
 	/* Make sure the interface is marked as closed */
@@ -5344,6 +5421,7 @@ static const struct net_device_ops wlan_drv_ops = {
 static const struct net_device_ops wlan_mon_drv_ops = {
 	.ndo_open = hdd_mon_open,
 	.ndo_stop = hdd_stop,
+	.ndo_start_xmit = hdd_hard_start_xmit,
 	.ndo_get_stats = hdd_get_stats,
 };
 
@@ -5779,6 +5857,8 @@ bool hdd_is_vdev_in_conn_state(struct hdd_adapter *adapter)
 	case QDF_P2P_GO_MODE:
 		return (test_bit(SOFTAP_BSS_STARTED,
 				 &adapter->event_flags));
+	case QDF_MONITOR_MODE:
+		return false;
 	default:
 		hdd_err("Device mode %d invalid", adapter->device_mode);
 		return 0;
@@ -5912,6 +5992,80 @@ hdd_vdev_destroy_procedure:
 	return errno;
 }
 
+#if defined(CONFIG_WIRELESS_EXT) && defined(FEATURE_FRAME_INJECTION_SUPPORT)
+static int hdd_monitor_wext_giwname(struct net_device *dev,
+					struct iw_request_info *info,
+					union iwreq_data *wrqu, char *extra)
+{
+	strscpy(wrqu->name, "IEEE 802.11", IFNAMSIZ);
+
+	return 0;
+}
+
+static int hdd_monitor_wext_giwmode(struct net_device *dev,
+					struct iw_request_info *info,
+					union iwreq_data *wrqu, char *extra)
+{
+	struct hdd_adapter *adapter = WLAN_HDD_GET_PRIV_PTR(dev);
+	int ret;
+
+	ret = hdd_validate_adapter(adapter);
+	if (ret)
+		return -EINVAL;
+
+	wrqu->mode = adapter->device_mode == QDF_MONITOR_MODE ?
+		IW_MODE_MONITOR : IW_MODE_INFRA;
+	return 0;
+}
+
+static int hdd_monitor_wext_giwfreq(struct net_device *dev,
+					struct iw_request_info *info,
+					union iwreq_data *wrqu, char *extra)
+{
+	struct hdd_adapter *adapter = WLAN_HDD_GET_PRIV_PTR(dev);
+	struct hdd_station_ctx *sta_ctx;
+	uint32_t chan_freq;
+
+	if (!adapter)
+		return -EINVAL;
+
+	chan_freq = adapter->mon_chan_freq;
+
+	if (!chan_freq) {
+		sta_ctx = WLAN_HDD_GET_STATION_CTX_PTR(adapter);
+		if (sta_ctx)
+			chan_freq = sta_ctx->ch_info.freq;
+	}
+
+	if (!chan_freq)
+		return -EINVAL;
+
+	wrqu->freq.m = chan_freq;
+	wrqu->freq.e = 6;
+	return 0;
+}
+
+static const iw_handler hdd_monitor_wext_handlers[] = {
+	[IW_IOCTL_IDX(SIOCGIWNAME)] = hdd_monitor_wext_giwname,
+	[IW_IOCTL_IDX(SIOCGIWFREQ)] = hdd_monitor_wext_giwfreq,
+	[IW_IOCTL_IDX(SIOCGIWMODE)] = hdd_monitor_wext_giwmode,
+};
+
+static const struct iw_handler_def hdd_monitor_wext_handler_def = {
+	.num_standard = QDF_ARRAY_SIZE(hdd_monitor_wext_handlers),
+	.standard = hdd_monitor_wext_handlers,
+};
+
+static void hdd_register_monitor_wext(struct net_device *dev)
+{
+	dev->wireless_handlers = &hdd_monitor_wext_handler_def;
+}
+#else
+static inline void hdd_register_monitor_wext(struct net_device *dev)
+{
+}
+#endif
+
 QDF_STATUS hdd_init_station_mode(struct hdd_adapter *adapter)
 {
 	struct hdd_station_ctx *sta_ctx = &adapter->session.station;
@@ -5935,7 +6089,10 @@ QDF_STATUS hdd_init_station_mode(struct hdd_adapter *adapter)
 				  adapter->device_mode);
 
 	hdd_roam_profile_init(adapter);
-	hdd_register_wext(adapter->dev);
+	if (adapter->device_mode == QDF_MONITOR_MODE)
+		hdd_register_monitor_wext(adapter->dev);
+	else
+		hdd_register_wext(adapter->dev);
 
 	hdd_conn_set_connection_state(adapter, eConnectionState_NotConnected);
 	sme_roam_reset_configs(mac_handle, adapter->vdev_id);
@@ -7063,6 +7220,8 @@ struct hdd_adapter *hdd_open_adapter(struct hdd_context *hdd_ctx, uint8_t sessio
 	INIT_WORK(&adapter->scan_block_work, wlan_hdd_cfg80211_scan_block_cb);
 	INIT_WORK(&adapter->sap_stop_bss_work,
 		  hdd_stop_sap_due_to_invalid_channel);
+	qdf_atomic_init(&adapter->defrost_scheduled);
+	INIT_WORK(&adapter->defrost_work, hdd_defrost_worker);
 	qdf_list_create(&adapter->blocked_scan_request_q, WLAN_MAX_SCAN_COUNT);
 	qdf_mutex_create(&adapter->blocked_scan_request_q_lock);
 	qdf_event_create(&adapter->acs_complete_event);
@@ -7073,8 +7232,7 @@ struct hdd_adapter *hdd_open_adapter(struct hdd_context *hdd_ctx, uint8_t sessio
 	qdf_atomic_init(&adapter->gro_disallowed);
 
 	for (i = 0; i < NET_DEV_HOLD_ID_MAX; i++)
-		qdf_atomic_init(
-			&adapter->net_dev_hold_ref_count[NET_DEV_HOLD_ID_MAX]);
+		qdf_atomic_init(&adapter->net_dev_hold_ref_count[i]);
 
 	/* Add it to the hdd's session list. */
 	status = hdd_add_adapter_back(hdd_ctx, adapter);
@@ -11062,12 +11220,24 @@ static void hdd_adapter_param_update_work(void *arg)
 
 QDF_STATUS hdd_init_adapter_ops_wq(struct hdd_context *hdd_ctx)
 {
+	QDF_STATUS status;
+
 	hdd_enter();
 
 	hdd_ctx->adapter_ops_wq =
 		qdf_alloc_high_prior_ordered_workqueue("hdd_adapter_ops_wq");
-	if (!hdd_ctx->adapter_ops_wq)
+	if (!hdd_ctx->adapter_ops_wq) {
+		hdd_exit();
 		return QDF_STATUS_E_NOMEM;
+	}
+
+	status = hdd_monitor_restore_work_init(hdd_ctx);
+	if (QDF_IS_STATUS_ERROR(status)) {
+		qdf_destroy_workqueue(0, hdd_ctx->adapter_ops_wq);
+		hdd_ctx->adapter_ops_wq = NULL;
+		hdd_exit();
+		return status;
+	}
 
 	hdd_exit();
 
@@ -11078,8 +11248,15 @@ void hdd_deinit_adapter_ops_wq(struct hdd_context *hdd_ctx)
 {
 	hdd_enter();
 
+	if (!hdd_ctx->adapter_ops_wq) {
+		hdd_exit();
+		return;
+	}
+
+	hdd_monitor_restore_work_deinit(hdd_ctx);
 	qdf_flush_workqueue(0, hdd_ctx->adapter_ops_wq);
 	qdf_destroy_workqueue(0, hdd_ctx->adapter_ops_wq);
+	hdd_ctx->adapter_ops_wq = NULL;
 
 	hdd_exit();
 }
@@ -17502,6 +17679,7 @@ static void hdd_stop_present_mode(struct hdd_context *hdd_ctx,
 		hdd_info("Release wakelock for monitor mode!");
 		qdf_wake_lock_release(&hdd_ctx->monitor_mode_wakelock,
 				      WIFI_POWER_EVENT_WAKELOCK_MONITOR_MODE);
+		wma_injection_pre_stop_cleanup();
 		/* fallthrough */
 	case QDF_GLOBAL_MISSION_MODE:
 	case QDF_GLOBAL_FTM_MODE:
