@@ -831,7 +831,7 @@ int oplus_display_panel_notify_fp_press(void *data)
 
 	vblank_get = drm_crtc_vblank_get(dsi_connector->state->crtc);
 	if (vblank_get) {
-		pr_err("failed to get crtc vblank\n", vblank_get);
+		pr_err("failed to get crtc vblank, error=%d\n", vblank_get);
 	}
 	oplus_onscreenfp_status = onscreenfp_status;
 

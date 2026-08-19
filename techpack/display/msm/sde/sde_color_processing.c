@@ -4404,7 +4404,8 @@ void sde_cp_crtc_pcc_change(struct drm_crtc *crtc_drm)
 			continue;
 		}
 
-		pr_err("oplus_pcc: %s %d prop_node->feature=%d\n", __func__, __LINE__, SDE_CP_CRTC_DSPP_PCC);
+		pr_err("oplus_pcc: %s %d prop_node->feature=%d\n", __func__, __LINE__,
+		       prop_node->feature);
 		sde_cp_update_list(prop_node, crtc, true);
 	}
 
