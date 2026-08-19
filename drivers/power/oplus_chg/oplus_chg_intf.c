@@ -1569,10 +1569,17 @@ static int oplus_chg_intf_batt_get_prop(struct oplus_chg_mod *ocm,
 		break;
 	case OPLUS_CHG_PROP_TIME_TO_FULL_NOW:
 		rc = oplus_gauge_get_batt_ttf();
-		if (rc < 0)
+		if (rc < 0) {
+			/* No TTF estimate available (e.g. not charging, or the
+			 * gauge hasn't learned one yet) is a normal condition,
+			 * not a fault -- don't let it fall through to the
+			 * generic "Couldn't get prop" error path below, which
+			 * logged this every single health-HAL poll. */
 			pval->intval = -1;
-		else
+			rc = 0;
+		} else {
 			pval->intval = rc;
+		}
 		break;
 	case OPLUS_CHG_PROP_TIME_TO_EMPTY_AVG:
 		pval->intval = 5000;
