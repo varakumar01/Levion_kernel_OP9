@@ -1758,7 +1758,7 @@ static int qpnp_pon_config_init(struct qpnp_pon *pon,
 		cfg->pull_up = of_property_read_bool(cfg_node, "qcom,pull-up");
 	}
 
-	pmic_wd_bark_irq = platform_get_irq_byname(pdev, "pmic-wd-bark");
+	pmic_wd_bark_irq = platform_get_irq_byname_optional(pdev, "pmic-wd-bark");
 	/* Request the pmic-wd-bark irq only if it is defined */
 	if (pmic_wd_bark_irq >= 0) {
 		rc = devm_request_irq(pon->dev, pmic_wd_bark_irq,
