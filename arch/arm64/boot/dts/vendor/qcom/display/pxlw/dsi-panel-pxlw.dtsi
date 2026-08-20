@@ -68,10 +68,6 @@
 	qcom,platform-te-gpio = <&tlmm 83 0>;
 };
 
-&dsi_samsung_amb655x_dsc_cmd {
-	pxlw,soft-iris-enable;
-};
-
 &dsi_oplus20031_samsung_1440_3216_dsc_cmd {
 	pxlw,soft-iris-enable;
 };
