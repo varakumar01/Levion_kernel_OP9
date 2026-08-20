@@ -468,6 +468,20 @@ static void sde_power_parse_ib_votes(struct platform_device *pdev,
 		return;
 	}
 
+	/*
+	 * sde_power_resource_init() is shared by both the sde-kms platform
+	 * device and sde-rsc (sde_rsc.c); qcom,sde-min-*-ib-kbps only exist
+	 * on the sde-kms node's devicetree binding, and phandle->ib_quota[]
+	 * is only ever read back through the sde-kms handle
+	 * (sde_power_resource_enable(), sde/sde_kms.c). Running this parse
+	 * against sde-rsc's node always fails with -EINVAL (property does
+	 * not exist there) and the result is never used -- skip it instead
+	 * of logging three pr_err()s every boot for a lookup that can never
+	 * succeed and wouldn't matter if it did.
+	 */
+	if (!of_device_is_compatible(pdev->dev.of_node, "qcom,sde-kms"))
+		return;
+
 	rc = of_property_read_u32(pdev->dev.of_node,
 			"qcom,sde-min-core-ib-kbps", &tmp);
 	if (rc)
