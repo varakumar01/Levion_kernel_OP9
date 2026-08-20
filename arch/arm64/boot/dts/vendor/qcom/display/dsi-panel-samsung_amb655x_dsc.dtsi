@@ -46,7 +46,7 @@
 		qcom,mdss-dsi-init-delay-us = <1000>;
 		qcom,mdss-dsi-panel-jitter = <0x4 0x1>;
 		qcom,dynamic-mode-switch-enabled;
-		qcom,dynamic-mode-switch-type = "dynamic-switch-immediate";
+		qcom,dynamic-mode-switch-type = "dynamic-resolution-switch-immediate";
 		/* HDR Setting */
 		qcom,mdss-dsi-panel-hdr-enabled;
 		qcom,mdss-dsi-panel-hdr-color-primaries = <15635 16450 34000 16000 13250 34500 7500 3000>;
