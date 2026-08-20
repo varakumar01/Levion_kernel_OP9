@@ -110,7 +110,16 @@ static void register_minidump(struct ramoops_context *cxt)
 				"KDMESG%d", i);
 		pstore_entry.virt_addr = (u64)(prz->vaddr);
 		pstore_entry.phys_addr = prz->paddr;
-		pstore_entry.size = prz->size;
+		/*
+		 * validate_region() rejects any region whose size isn't
+		 * 4-byte aligned. ramoops_init_przs() divides the dmesg pool
+		 * by max_dump_cnt and only aligns down to 2 (see zone_sz
+		 * below), which for this board's carveout leaves a size that
+		 * is 2 mod 4 -- every KDMESG region was silently dropped from
+		 * the minidump table. Align down defensively here instead of
+		 * relying on the zone size always coming out 4-aligned.
+		 */
+		pstore_entry.size = ALIGN_DOWN(prz->size, 4);
 		if (msm_minidump_add_region(&pstore_entry) < 0)
 			pr_err("failed to add dmesg in minidump\n");
 	}
@@ -120,7 +129,7 @@ static void register_minidump(struct ramoops_context *cxt)
 				sizeof(pstore_entry.name));
 		pstore_entry.virt_addr = (u64)(prz->vaddr);
 		pstore_entry.phys_addr = prz->paddr;
-		pstore_entry.size = prz->size;
+		pstore_entry.size = ALIGN_DOWN(prz->size, 4);
 		if (msm_minidump_add_region(&pstore_entry) < 0)
 			pr_err("failed to add console in minidump\n");
 	}
@@ -130,7 +139,7 @@ static void register_minidump(struct ramoops_context *cxt)
 				"KFTRACE%d", i);
 		pstore_entry.virt_addr = (u64)(prz->vaddr);
 		pstore_entry.phys_addr = prz->paddr;
-		pstore_entry.size = prz->size;
+		pstore_entry.size = ALIGN_DOWN(prz->size, 4);
 		if (msm_minidump_add_region(&pstore_entry) < 0)
 			pr_err("failed to add ftrace in minidump\n");
 	}
@@ -140,7 +149,7 @@ static void register_minidump(struct ramoops_context *cxt)
 				sizeof(pstore_entry.name));
 		pstore_entry.virt_addr = (u64)(prz->vaddr);
 		pstore_entry.phys_addr = prz->paddr;
-		pstore_entry.size = prz->size;
+		pstore_entry.size = ALIGN_DOWN(prz->size, 4);
 		if (msm_minidump_add_region(&pstore_entry) < 0)
 			pr_err("failed to add pmsg in minidump\n");
 	}
