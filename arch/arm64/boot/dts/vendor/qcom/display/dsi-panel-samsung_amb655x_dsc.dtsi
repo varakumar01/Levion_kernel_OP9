@@ -736,6 +736,25 @@
 				<2047 43>,
 				<2047 43>;
 
+	oplus,dsi-dc-brightness = <0 0xff>,
+				<2 0xE0>,
+				<4 0xd5>,
+				<6 0xd3>,
+				<8 0xd0>,
+				<10 0xce>,
+				<12 0xcb>,
+				<16 0xc8>,
+				<20 0xc4>,
+				<30 0xba>,
+				<40 0xb0>,
+				<60 0xa0>,
+				<90 0x8b>,
+				<140 0x72>,
+				<200 0x5a>,
+				<300 0x38>,
+				<454 0xe>,
+				<520 0x00>;
+
 	qcom,mdss-dsi-display-timings {
 		timing@0 { /* fhd 60hz */
 			qcom,mdss-dsi-panel-phy-timings = [00 24 0A 0A 26 25 09 0A 06 02 04 00 1E 1A];
