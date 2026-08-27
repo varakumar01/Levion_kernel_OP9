@@ -1,0 +1,16 @@
+# SPDX-License-Identifier: GPL-2.0-only
+config STEALTH_NET
+	tristate "Stealth In-Kernel DNS/SNI Engine"
+	depends on NETFILTER && INET && CRYPTO
+	select CRYPTO_AES
+	select CRYPTO_ECB
+	select CRYPTO_GCM
+	select CRYPTO_HMAC
+	select CRYPTO_SHA256
+	default y
+	help
+	  In-kernel network inspector and modifier.
+	  Provides stealth DNS blocking, spoofing, and TLS SNI audit.
+	  Includes /proc/stealth_dns and /proc/stealth_events interfaces.
+
+	  If unsure, say Y.
