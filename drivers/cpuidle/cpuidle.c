@@ -9,6 +9,7 @@
  */
 
 #include <linux/clockchips.h>
+#include <linux/fie.h>
 #include <linux/kernel.h>
 #include <linux/mutex.h>
 #include <linux/sched.h>
@@ -227,7 +228,9 @@ int __nocfi cpuidle_enter_state(struct cpuidle_device *dev, struct cpuidle_drive
 	time_start = ns_to_ktime(local_clock());
 
 	stop_critical_timings();
+	fie_cpu_idle(dev->cpu, true);
 	entered_state = target_state->enter(dev, drv, index);
+	fie_cpu_idle(dev->cpu, false);
 	start_critical_timings();
 
 	sched_clock_idle_wakeup_event();
