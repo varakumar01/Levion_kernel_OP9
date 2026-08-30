@@ -4311,6 +4311,19 @@ __perform_reclaim(gfp_t gfp_mask, unsigned int order,
 	return progress;
 }
 
+#define CRITICAL_OOM_SCORE_ADJ	(-900)
+
+static __always_inline bool task_is_critical(void)
+{
+	if (current->flags & PF_KTHREAD)
+		return false;
+
+	if (unlikely(!current->signal))
+		return false;
+
+	return READ_ONCE(current->signal->oom_score_adj) <= CRITICAL_OOM_SCORE_ADJ;
+}
+
 /* The really slow allocator path where we enter direct reclaim */
 static inline struct page *
 __alloc_pages_direct_reclaim(gfp_t gfp_mask, unsigned int order,
@@ -4334,7 +4347,8 @@ retry:
 	 */
 	if (!page && !drained) {
 		unreserve_highatomic_pageblock(ac, false);
-		drain_all_pages(NULL);
+		if (!task_is_critical())
+			drain_all_pages(NULL);
 		drained = true;
 		goto retry;
 	}
@@ -4764,6 +4778,11 @@ retry:
 					compact_priority, &compact_result);
 	if (page)
 		goto got_pg;
+
+	if (task_is_critical() && !(alloc_flags & ALLOC_HARDER)) {
+		alloc_flags |= ALLOC_HARDER;
+		goto retry;
+	}
 
 	/* Do not loop if specifically requested */
 	if (gfp_mask & __GFP_NORETRY)
