@@ -9,6 +9,7 @@
 #include <linux/cpu_cooling.h>
 #include <linux/cpuhotplug.h>
 #include <linux/energy_model.h>
+#include <linux/fie.h>
 #include <linux/init.h>
 #include <linux/interrupt.h>
 #include <linux/kernel.h>
@@ -139,14 +140,20 @@ static unsigned long limits_mitigation_notify(struct cpufreq_qcom *c,
 	sched_update_cpu_freq_min_max(&c->related_cpus, 0, freq);
 
 	/*
-	 * Report the capacity lost to this throttle event to the scheduler's
-	 * thermal-pressure signal, same as the generic cpufreq cooling
-	 * device does in cpufreq_set_cur_state(). sched_update_cpu_freq_
-	 * min_max() above is a no-op here (CONFIG_SCHED_WALT is off on this
-	 * defconfig), so this is the only live consumer of this driver's
-	 * LMH/dcvsh throttle detection.
+	 * Feed this LMH/dcvsh-reported throttle into FIE's own throttle-source
+	 * aggregation, which combines it with FIE's independently-measured
+	 * hardware throttle detection (see fie_cpufreq_pressure() and
+	 * update_cpu_hw_throttle() in kernel/sched/fie.c) -- same pattern
+	 * FIE's own source tree uses in its equivalent qcom-cpufreq-hw.c
+	 * function. Also report it directly to the scheduler's thermal-
+	 * pressure signal, same as the generic cpufreq cooling device does in
+	 * cpufreq_set_cur_state(); sched_update_cpu_freq_min_max() above is a
+	 * no-op (CONFIG_SCHED_WALT is off on this defconfig).
 	 */
 	if (policy) {
+		fie_cpufreq_pressure(cpu, freq >= policy->cpuinfo.max_freq ?
+				     UINT_MAX : freq);
+
 		max_capacity = arch_scale_cpu_capacity(cpu);
 		capacity = freq * max_capacity;
 		capacity /= policy->cpuinfo.max_freq;
@@ -274,8 +281,19 @@ qcom_cpufreq_hw_target_index(struct cpufreq_policy *policy,
 		writel_relaxed(freq / 1000, c->sdpm_base[i]);
 
 	writel_relaxed(index, policy->driver_data + offsets[REG_PERF_STATE]);
-	arch_set_freq_scale(policy->related_cpus, freq,
-			    policy->cpuinfo.max_freq);
+	fie_rate_set(policy->cpu, freq);
+
+	/*
+	 * Once FIE is measuring the real frequency itself, this requested-
+	 * frequency-based write would immediately overwrite FIE's more
+	 * accurate value on every transition. This tree bypasses the
+	 * scale_freq_data source-arbitration mechanism FIE's source tree uses
+	 * for this same purpose (see kernel/sched/fie.c's fie_init() comment)
+	 * in favor of guarding this one known caller directly.
+	 */
+	if (!static_branch_unlikely(&fie_ready))
+		arch_set_freq_scale(policy->related_cpus, freq,
+				    policy->cpuinfo.max_freq);
 
 	for (i = 0; i < c->sdpm_base_count && freq < policy->cur; i++)
 		writel_relaxed(freq / 1000, c->sdpm_base[i]);
@@ -343,6 +361,22 @@ static int qcom_cpufreq_hw_cpu_init(struct cpufreq_policy *policy)
 	policy->driver_data = c->base;
 	policy->fast_switch_possible = true;
 	policy->dvfs_possible_from_any_cpu = true;
+
+	/*
+	 * Register this frequency domain with FIE now that the freq table is
+	 * populated. Scan the table for the max frequency since
+	 * cpuinfo.max_freq isn't set until after cpu_init() returns.
+	 */
+	{
+		unsigned int max_freq = 0, fi;
+
+		for (fi = 0; c->table[fi].frequency != CPUFREQ_TABLE_END; fi++) {
+			if (c->table[fi].frequency != CPUFREQ_ENTRY_INVALID &&
+			    c->table[fi].frequency > max_freq)
+				max_freq = c->table[fi].frequency;
+		}
+		fie_init_cpu_domain(policy->cpus, max_freq);
+	}
 
 	dev_pm_opp_of_register_em(policy->cpus);
 

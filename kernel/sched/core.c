@@ -8,6 +8,7 @@
  */
 #include "sched.h"
 
+#include <linux/fie.h>
 #include <linux/nospec.h>
 
 #include <linux/kcov.h>
@@ -227,6 +228,7 @@ void update_rq_clock(struct rq *rq)
 	if (delta < 0)
 		return;
 	rq->clock += delta;
+	fie_update_rq_clock(rq);
 	update_rq_clock_task(rq, delta);
 }
 
@@ -4056,6 +4058,7 @@ void scheduler_tick(void)
 	wallclock = sched_ktime_clock();
 	walt_update_task_ravg(rq->curr, rq, TASK_UPDATE, wallclock, 0);
 	update_rq_clock(rq);
+	update_cpu_hw_throttle();
 	thermal_pressure = arch_scale_thermal_pressure(cpu_of(rq));
 	update_thermal_load_avg(rq_clock_thermal(rq), rq, thermal_pressure);
 	curr->sched_class->task_tick(rq, curr, 0);
