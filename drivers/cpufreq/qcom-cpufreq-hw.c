@@ -6,6 +6,7 @@
 #include <linux/bitfield.h>
 #include <linux/cpufreq.h>
 #include <linux/cpu_cooling.h>
+#include <linux/cpuhotplug.h>
 #include <linux/energy_model.h>
 #include <linux/init.h>
 #include <linux/interrupt.h>
@@ -679,6 +680,31 @@ static int qcom_resources_init(struct platform_device *pdev)
 	return 0;
 }
 
+/*
+ * Qualcomm CPUs default to their lowest supported frequency when a CPU
+ * comes online, which hurts wake latency since the governor hasn't taken
+ * over yet at this point. Set each CPU's clock to its max frequency as
+ * soon as it comes online instead; this happens behind the governor's
+ * back, but that's fine because the governor isn't running yet for a
+ * CPU that's still coming online.
+ */
+static int cpuhp_qcom_online(unsigned int cpu)
+{
+	struct cpufreq_qcom *c = qcom_freq_domain_map[cpu];
+	unsigned int max_index;
+
+	if (!c)
+		return 0;
+
+	for (max_index = 0;
+	     c->table[max_index + 1].frequency != CPUFREQ_TABLE_END;
+	     max_index++)
+		;
+
+	writel_relaxed(max_index, c->base + offsets[REG_PERF_STATE]);
+	return 0;
+}
+
 static int qcom_cpufreq_hw_driver_probe(struct platform_device *pdev)
 {
 	struct cpu_cycle_counter_cb cycle_counter_cb = {
@@ -698,6 +724,11 @@ static int qcom_cpufreq_hw_driver_probe(struct platform_device *pdev)
 		dev_err(&pdev->dev, "CPUFreq HW driver failed to register\n");
 		return rc;
 	}
+
+	rc = cpuhp_setup_state_nocalls(CPUHP_AP_ONLINE, "qcom-cpufreq:online",
+					cpuhp_qcom_online, NULL);
+	if (rc)
+		dev_err(&pdev->dev, "CPUHP callback setup failed, rc=%d\n", rc);
 
 	for_each_possible_cpu(cpu)
 		spin_lock_init(&qcom_cpufreq_counter[cpu].lock);
