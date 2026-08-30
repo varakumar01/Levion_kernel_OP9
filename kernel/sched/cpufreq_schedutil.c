@@ -16,6 +16,9 @@
 #include <trace/hooks/sched.h>
 
 #define IOWAIT_BOOST_MIN	(SCHED_CAPACITY_SCALE / 8)
+#define SUGOV_DVFS_HEADROOM_FACTOR_LITTLE	1280
+#define SUGOV_DVFS_HEADROOM_FACTOR_MID		1228
+#define SUGOV_DVFS_HEADROOM_FACTOR_PRIME	1126
 
 struct sugov_tunables {
 	struct gov_attr_set	attr_set;
@@ -58,6 +61,10 @@ struct sugov_policy {
 
 	bool			limits_changed;
 	bool			need_freq_update;
+
+	unsigned long		dvfs_capacity;
+	unsigned int		dvfs_headroom_factor;
+	u16			dvfs_headroom_lut[SCHED_CAPACITY_SCALE + 1];
 };
 
 struct sugov_cpu {
@@ -76,6 +83,8 @@ struct sugov_cpu {
 
 	unsigned long		bw_dl;
 	unsigned long		max;
+
+	u16			*dvfs_headroom_lut;
 
 	/* The field below is for single-CPU policies only: */
 #ifdef CONFIG_NO_HZ_COMMON
@@ -325,6 +334,78 @@ static unsigned int get_next_freq(struct sugov_policy *sg_policy,
 }
 
 /*
+ * Per-cluster DVFS headroom: reduce unnecessary boosting on the
+ * higher-performance clusters while retaining more headroom on the
+ * LITTLE cluster, where frequency changes are cheaper. Both mid
+ * clusters share a factor since they have matching power coefficients
+ * and dmips characteristics on this SoC.
+ */
+static inline unsigned int sugov_dvfs_headroom_factor(unsigned int cpu)
+{
+	if (cpu <= 1)
+		return SUGOV_DVFS_HEADROOM_FACTOR_LITTLE;
+
+	if (cpu == 7)
+		return SUGOV_DVFS_HEADROOM_FACTOR_PRIME;
+
+	return SUGOV_DVFS_HEADROOM_FACTOR_MID;
+}
+
+static inline unsigned long sugov_apply_dvfs_headroom(unsigned long util,
+						      unsigned long capacity,
+						      unsigned int headroom_factor)
+{
+	unsigned long headroom;
+
+	if (util >= capacity)
+		return util;
+
+	/*
+	 * Taper the boosting at the top end as these are expensive and
+	 * we don't need that much of a big headroom as we approach max
+	 * capacity.
+	 */
+	headroom = capacity - util;
+
+	/* formula: headroom * (1.X - 1) == headroom * 0.X */
+	headroom = (headroom * (headroom_factor - SCHED_CAPACITY_SCALE)) >>
+		   SCHED_CAPACITY_SHIFT;
+
+	return util + headroom;
+}
+
+/*
+ * DVFS headroom is applied via a per-policy lookup table built by
+ * sugov_build_dvfs_headroom_lut(), indexed directly by utilization, so
+ * the scheduler hot path only pays for a single array dereference.
+ */
+static inline unsigned long apply_dvfs_headroom(unsigned long util,
+						struct sugov_cpu *sg_cpu)
+{
+	util = min_t(unsigned long, util, SCHED_CAPACITY_SCALE);
+	return sg_cpu->dvfs_headroom_lut[util];
+}
+
+static void sugov_build_dvfs_headroom_lut(struct sugov_policy *sg_policy)
+{
+	struct cpufreq_policy *policy = sg_policy->policy;
+	unsigned long capacity = arch_scale_cpu_capacity(policy->cpu);
+	unsigned int headroom_factor = sugov_dvfs_headroom_factor(policy->cpu);
+	unsigned long util;
+
+	if (sg_policy->dvfs_capacity == capacity &&
+	    sg_policy->dvfs_headroom_factor == headroom_factor)
+		return;
+
+	sg_policy->dvfs_capacity = capacity;
+	sg_policy->dvfs_headroom_factor = headroom_factor;
+
+	for (util = 0; util <= SCHED_CAPACITY_SCALE; util++)
+		sg_policy->dvfs_headroom_lut[util] =
+			sugov_apply_dvfs_headroom(util, capacity, headroom_factor);
+}
+
+/*
  * This function computes an effective utilization for the given CPU, to be
  * used for frequency selection given the linear relation: f = u * f_max.
  *
@@ -446,8 +527,9 @@ static unsigned long sugov_get_util(struct sugov_cpu *sg_cpu)
 	return uclamp_rq_util_with(rq, util, NULL);
 #else
 	util = cpu_util_cfs(rq);
+	util = schedutil_cpu_util(sg_cpu->cpu, util, max, FREQUENCY_UTIL, NULL);
 
-	return schedutil_cpu_util(sg_cpu->cpu, util, max, FREQUENCY_UTIL, NULL);
+	return apply_dvfs_headroom(util, sg_cpu);
 #endif
 }
 
@@ -1221,6 +1303,8 @@ static int sugov_init(struct cpufreq_policy *policy)
 		goto disable_fast_switch;
 	}
 
+	sugov_build_dvfs_headroom_lut(sg_policy);
+
 	ret = sugov_kthread_create(sg_policy);
 	if (ret)
 		goto free_sg_policy;
@@ -1349,6 +1433,7 @@ static int sugov_start(struct cpufreq_policy *policy)
 		memset(sg_cpu, 0, sizeof(*sg_cpu));
 		sg_cpu->cpu			= cpu;
 		sg_cpu->sg_policy		= sg_policy;
+		sg_cpu->dvfs_headroom_lut	= sg_policy->dvfs_headroom_lut;
 	}
 
 	for_each_cpu(cpu, policy->cpus) {
@@ -1383,6 +1468,8 @@ static void sugov_limits(struct cpufreq_policy *policy)
 	struct sugov_policy *sg_policy = policy->governor_data;
 	unsigned long flags, now;
 	unsigned int freq;
+
+	sugov_build_dvfs_headroom_lut(sg_policy);
 
 	if (!policy->fast_switch_enabled) {
 		mutex_lock(&sg_policy->work_lock);
