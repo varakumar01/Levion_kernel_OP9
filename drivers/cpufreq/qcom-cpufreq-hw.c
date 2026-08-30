@@ -3,6 +3,7 @@
  * Copyright (c) 2018-2021, The Linux Foundation. All rights reserved.
  */
 
+#include <linux/arch_topology.h>
 #include <linux/bitfield.h>
 #include <linux/cpufreq.h>
 #include <linux/cpu_cooling.h>
@@ -119,23 +120,40 @@ static unsigned long limits_mitigation_notify(struct cpufreq_qcom *c,
 					bool limit)
 {
 	struct cpufreq_policy *policy;
-	u32 cpu;
+	u32 cpu = cpumask_first(&c->related_cpus);
 	unsigned long freq;
+	unsigned long max_capacity, capacity;
+
+	policy = cpufreq_cpu_get_raw(cpu);
 
 	if (limit) {
 		freq = readl_relaxed(c->base + offsets[REG_DOMAIN_STATE]) &
 				GENMASK(7, 0);
 		freq = DIV_ROUND_CLOSEST_ULL(freq * xo_rate, 1000);
+	} else if (!policy) {
+		freq = U32_MAX;
 	} else {
-		cpu = cpumask_first(&c->related_cpus);
-		policy = cpufreq_cpu_get_raw(cpu);
-		if (!policy)
-			freq = U32_MAX;
-		else
-			freq = policy->cpuinfo.max_freq;
+		freq = policy->cpuinfo.max_freq;
 	}
 
 	sched_update_cpu_freq_min_max(&c->related_cpus, 0, freq);
+
+	/*
+	 * Report the capacity lost to this throttle event to the scheduler's
+	 * thermal-pressure signal, same as the generic cpufreq cooling
+	 * device does in cpufreq_set_cur_state(). sched_update_cpu_freq_
+	 * min_max() above is a no-op here (CONFIG_SCHED_WALT is off on this
+	 * defconfig), so this is the only live consumer of this driver's
+	 * LMH/dcvsh throttle detection.
+	 */
+	if (policy) {
+		max_capacity = arch_scale_cpu_capacity(cpu);
+		capacity = freq * max_capacity;
+		capacity /= policy->cpuinfo.max_freq;
+		arch_set_thermal_pressure(&c->related_cpus,
+					  max_capacity - capacity);
+	}
+
 	trace_dcvsh_freq(cpumask_first(&c->related_cpus), freq);
 	c->dcvsh_freq_limit = freq;
 
