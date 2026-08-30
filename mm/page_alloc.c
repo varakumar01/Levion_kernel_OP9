@@ -4311,19 +4311,6 @@ __perform_reclaim(gfp_t gfp_mask, unsigned int order,
 	return progress;
 }
 
-#define CRITICAL_OOM_SCORE_ADJ	(-900)
-
-static __always_inline bool task_is_critical(void)
-{
-	if (current->flags & PF_KTHREAD)
-		return false;
-
-	if (unlikely(!current->signal))
-		return false;
-
-	return READ_ONCE(current->signal->oom_score_adj) <= CRITICAL_OOM_SCORE_ADJ;
-}
-
 /* The really slow allocator path where we enter direct reclaim */
 static inline struct page *
 __alloc_pages_direct_reclaim(gfp_t gfp_mask, unsigned int order,
