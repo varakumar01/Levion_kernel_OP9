@@ -17,6 +17,7 @@
 #include <linux/smp.h>
 #include <linux/units.h>
 #include <asm/arch_timer.h>
+#include <asm/cpufeature.h>
 #include <asm/cputype.h>
 #include <asm/perf_event.h>
 #include <linux/sched/cputime.h>
@@ -885,9 +886,19 @@ static int fie_cpuhp_up(unsigned int cpu)
 	bool has_amu;
 	int ret;
 
-	/* Detect AMU capabilities at runtime */
+	/*
+	 * Detect AMU capabilities at runtime. cpu_has_amu_feat() only reflects
+	 * silicon-level support detected via the standard cpufeature
+	 * framework; per its own comment (arch/arm64/kernel/cpufeature.c),
+	 * that does not guarantee firmware has actually enabled EL1 access to
+	 * the counter registers. Check it first regardless, since reading an
+	 * AMU register when the cpufeature framework didn't even detect AMU
+	 * support is never safe, and skip the read entirely rather than treat
+	 * a possible trap as a detection mechanism.
+	 */
 #if IS_ENABLED(CONFIG_ARM64_AMU_EXTN)
-	has_amu = read_sysreg_s(SYS_AMEVCNTR0_CORE_EL0);
+	has_amu = cpu_has_amu_feat(cpu) &&
+		  read_sysreg_s(SYS_AMEVCNTR0_CORE_EL0);
 #else
 	has_amu = false;
 #endif
