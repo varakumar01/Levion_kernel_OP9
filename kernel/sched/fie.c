@@ -17,7 +17,6 @@
 #include <linux/smp.h>
 #include <linux/units.h>
 #include <asm/arch_timer.h>
-#include <asm/cpufeature.h>
 #include <asm/cputype.h>
 #include <asm/perf_event.h>
 #include <linux/sched/cputime.h>
@@ -87,7 +86,7 @@ static void calc_cntpct_arith(void)
 	cpu_ramp_up_lat_cntpct = ns_to_cntpct(cpu_ramp_up_lat_cntpct);
 }
 
-/* The PMU/AMU event stats. Order is assumed by the *pmu_read() functions. */
+/* The PMU event stats. Order is assumed by fie_pmu_read(). */
 struct pmu_stat {
 	u64 cntpct;
 	u64 const_cyc;
@@ -134,8 +133,6 @@ static DEFINE_PER_CPU(struct cpu_pmu, cpu_pmu_evs) = {
 	.sfd.lock = __RAW_SPIN_LOCK_UNLOCKED(cpu_pmu_evs.sfd.lock)
 };
 
-static DEFINE_PER_CPU_READ_MOSTLY(bool, cpu_has_amu);
-static DEFINE_PER_CPU_READ_MOSTLY(bool, cpu_has_amu_const);
 static DEFINE_PER_CPU_READ_MOSTLY(u32, cpu_max_freq);
 
 enum cpu_throttle_src {
@@ -178,11 +175,6 @@ struct cpu_pmu_evt {
 };
 
 static DEFINE_PER_CPU(struct cpu_pmu_evt, pevt_pcpu);
-
-static __always_inline bool cpu_supports_amu_const(int cpu)
-{
-	return per_cpu(cpu_has_amu_const, cpu);
-}
 
 void fie_init_cpu_domain(const struct cpumask *cpus, unsigned int max_freq)
 {
@@ -257,8 +249,14 @@ release_pevs:
 }
 
 /*
- * These are the optimized functions for reading the PMU/AMU event counters for
- * each supported SoC.
+ * This is the optimized function for reading the PMU event counters. AMUv1
+ * counters are architecturally unreachable on this device: it boots at EL1
+ * under Qualcomm's QHEE/Gunyah hypervisor, which masks ID_AA64PFR0_EL1's AMU
+ * field to 0 for every CPU regardless of what the silicon implements (see
+ * arch/arm64/kvm/sys_regs.c for the identical policy KVM applies to its own
+ * guests, and why: AMUv1 counters have no virtual offset registers, so a
+ * hypervisor cannot context-switch them correctly). There is exactly one
+ * counter source available here.
  *
  * The generic timer counter (CNTPCT_EL0) is read directly for the lowest
  * possible latency incurred from reading the current time, as well as the
@@ -268,88 +266,45 @@ release_pevs:
  * speculative reads of the counter register, though is unnecessary when
  * CNTPCTSS_EL0 is available (which is indicated at runtime via ARM64_HAS_ECV).
  *
- * Next, the constant cycles counter is read. On CPUs which don't support the
- * AMU constant cycles event, the value from the generic timer counter is used
- * instead. The AMU constant cycles event is useful because it always stops
- * incrementing when the CPU is in WFE/WFI, which can be entered from a number
- * of places in the kernel besides cpuidle, such as __delay(). CPUs which don't
- * support AMU constant cycles only account for WFI from cpuidle; as a result,
- * the CPU frequency calculation for such CPUs may be lower than expected. This
- * is because of unaccounted WFE/WFI activity, since the generic timer counter
- * doesn't stop incrementing in WFE/WFI. This isn't typically a huge problem,
- * but it's worth noting.
+ * CNTPCT_EL0 also serves as the constant-cycles reference, since there is no
+ * AMU constant cycles event available on this device. Unlike an AMU constant
+ * cycles counter, CNTPCT_EL0 doesn't stop incrementing in WFE/WFI, so any
+ * WFE/WFI entered from outside cpuidle (e.g. __delay()) goes unaccounted and
+ * the resulting CPU frequency calculation may read lower than reality. Only
+ * WFI entered through cpuidle is accounted for. This isn't typically a huge
+ * problem, but it's worth noting.
  *
- * Then, the CPU cycles are read from AMU event counters on CPUs which support
- * AMU. On SoCs where this isn't the case, the value is read directly from the
- * PMU cycle count register (PMCCNTR_EL0) configured by the PMUv3 driver. This
- * is done directly in assembly rather than using the perf event API in order to
- * achieve the best possible accuracy, since any delays between the counter
- * reads injects inaccuracy into later calculations performed on these values.
+ * The CPU cycles are read from the PMU cycle count register (PMCCNTR_EL0)
+ * configured by the PMUv3 driver. This is done directly in assembly rather
+ * than using the perf event API in order to achieve the best possible
+ * accuracy, since any delays between the counter reads injects inaccuracy
+ * into later calculations performed on these values.
  *
  * A succeeding ISB ensures all counter register reads are complete before the
  * CPU proceeds. Any instruction reordering within the ISBs is of negligible
  * consequence, so no barriers are used in between the counter reads.
  *
- * These functions must be noinline in order to force the compiler to align them
- * to an L1 cache line. The goal is to fit all of the MRS instructions in each
- * function into the same cache line, to avoid timing discrepancies between one
- * MRS and another. A stall due to a cache line fill to get the next MRS can
- * influence calculations using these readings; e.g., if the current time is
- * read first and then the current number of CPU cycles is read next after a
- * stall due to fetching the instruction from beyond L1, the resulting CPU
- * frequency calculation from these figures would produce a higher result than
- * expected.
+ * This function must be noinline in order to force the compiler to align it
+ * to an L1 cache line. The goal is to fit all of the MRS instructions into
+ * the same cache line, to avoid timing discrepancies between one MRS and
+ * another. A stall due to a cache line fill to get the next MRS can influence
+ * calculations using these readings; e.g., if the current time is read first
+ * and then the current number of CPU cycles is read next after a stall due to
+ * fetching the instruction from beyond L1, the resulting CPU frequency
+ * calculation from these figures would produce a higher result than expected.
  *
- * None of these functions have stack-allocated variables. Therefore, the
- * prologue of each function may consist of up to two instructions: BTI and
- * PACIASP, from CONFIG_ARM64_BTI_KERNEL and CONFIG_ARM64_PTR_AUTH_KERNEL,
- * respectively. This leaves room for six instructions to be guaranteed to fit
- * within the same cache line as the prologue, which is enough to cover all MRS
- * instruction sequences for every SoC, including ISBs.
+ * This function has no stack-allocated variables. Therefore, its prologue may
+ * consist of up to two instructions: BTI and PACIASP, from
+ * CONFIG_ARM64_BTI_KERNEL and CONFIG_ARM64_PTR_AUTH_KERNEL, respectively.
+ * This leaves room for six instructions to be guaranteed to fit within the
+ * same cache line as the prologue, which is enough to cover the MRS
+ * instruction sequence, including ISBs.
  *
  * The resulting counter values are stored into a `struct pmu_stat` using a
  * compound literal to encourage the compiler to reorder or coalesce the stores
  * as it sees fit, without being constrained by any explicit store ordering
  * declared at compile time (e.g., `stat->foo = foo; stat->bar = bar; ...`).
  */
-static noinline void __aligned(L1_CACHE_BYTES)
-fie_amu_const_read(struct pmu_stat *stat)
-{
-	register u64 cntpct, const_cyc, cpu_cyc;
-
-	/*
-	 * AMEVCNTR01_EL0 (S3_3_C13_C4_1, constant cycles) and AMEVCNTR00_EL0
-	 * (S3_3_C13_C4_0, core cycles) are referenced by raw encoding rather
-	 * than symbolic mnemonic -- this toolchain's LLD LTO codegen doesn't
-	 * recognize the amevcntr0*_el0 names (unlike the regular per-file
-	 * assembler pass), while the raw Sop0_op1_Cn_Cm_op2 form is always
-	 * accepted regardless of the assembler's symbolic sysreg table.
-	 */
-	asm volatile("isb\n\t"
-		     "mrs %0, cntpct_el0\n\t"
-		     "mrs %1, S3_3_C13_C4_1\n\t"
-		     "mrs %2, S3_3_C13_C4_0\n\t"
-		     "isb"
-		     : "=r" (cntpct), "=r" (const_cyc), "=r" (cpu_cyc));
-
-	*stat = (typeof(*stat)){ cntpct, const_cyc, cpu_cyc };
-}
-
-static noinline void __aligned(L1_CACHE_BYTES)
-fie_amu_read(struct pmu_stat *stat)
-{
-	register u64 cntpct, cpu_cyc;
-
-	/* AMEVCNTR00_EL0 (S3_3_C13_C4_0, core cycles) -- see fie_amu_const_read() */
-	asm volatile("isb\n\t"
-		     "mrs %0, cntpct_el0\n\t"
-		     "mrs %1, S3_3_C13_C4_0\n\t"
-		     "isb"
-		     : "=r" (cntpct), "=r" (cpu_cyc));
-
-	*stat = (typeof(*stat)){ cntpct, cntpct, cpu_cyc };
-}
-
 static noinline void __aligned(L1_CACHE_BYTES)
 fie_pmu_read(struct pmu_stat *stat)
 {
@@ -362,21 +317,6 @@ fie_pmu_read(struct pmu_stat *stat)
 		     : "=r" (cntpct), "=r" (cpu_cyc));
 
 	*stat = (typeof(*stat)){ cntpct, cntpct, cpu_cyc };
-}
-
-static void pmu_get_stats(struct pmu_stat *stat)
-{
-	int cpu = raw_smp_processor_id();
-
-	/* Read the stats using the matching assembly function */
-	if (likely(per_cpu(cpu_has_amu, cpu))) {
-		if (cpu_supports_amu_const(cpu))
-			fie_amu_const_read(stat);
-		else
-			fie_amu_read(stat);
-	} else {
-		fie_pmu_read(stat);
-	}
 }
 
 /*
@@ -459,7 +399,7 @@ static void pmu_update_stats(int cpu, struct cpu_pmu *pmu,
 		*prev = *ptr1;
 	}
 
-	pmu_get_stats(cur);
+	fie_pmu_read(cur);
 
 	/* Publish the updated stats */
 	cur_ptr = pmu_get_cur_writer(pmu);
@@ -860,17 +800,16 @@ void fie_cpu_idle(int cpu, bool idle)
 		raw_spin_unlock(&sfd->lock);
 	} else {
 		/*
-		 * For CPUs which don't support AMU const cycles: update the
-		 * counters upon exiting idle without accumulating frequency
-		 * data, in order to disregard all statistics from the period
-		 * when the CPU was idle. This is because the system timer keeps
-		 * incrementing while the CPU is idle, while the cycle counter
-		 * doesn't because the CPU clock is gated in idle. This isn't a
-		 * problem for AMU const cycles because it *does* stop
-		 * incrementing while the CPU is idle.
+		 * Update the counters upon exiting idle without accumulating
+		 * frequency data, in order to disregard all statistics from
+		 * the period when the CPU was idle. This is needed because
+		 * CNTPCT_EL0 (used as both the time base and the
+		 * constant-cycles reference on this device, see
+		 * fie_pmu_read()) keeps incrementing while the CPU is idle,
+		 * while PMCCNTR_EL0 doesn't because the CPU clock is gated in
+		 * idle.
 		 */
-		if (!cpu_supports_amu_const(cpu))
-			pmu_update_stats(cpu, pmu, &cur, NULL);
+		pmu_update_stats(cpu, pmu, &cur, NULL);
 
 		/* Discard stale hardware throttle detection data */
 		reset_htd_data(htd);
@@ -883,40 +822,13 @@ static int fie_cpuhp_up(unsigned int cpu)
 	struct cpu_pmu *pmu = &per_cpu(cpu_pmu_evs, cpu);
 	struct sfd_data *sfd = &pmu->sfd;
 	struct htd_data *htd = &pmu->htd;
-	bool has_amu;
 	int ret;
 
-	/*
-	 * Detect AMU capabilities at runtime. cpu_has_amu_feat() only reflects
-	 * silicon-level support detected via the standard cpufeature
-	 * framework; per its own comment (arch/arm64/kernel/cpufeature.c),
-	 * that does not guarantee firmware has actually enabled EL1 access to
-	 * the counter registers. Check it first regardless, since reading an
-	 * AMU register when the cpufeature framework didn't even detect AMU
-	 * support is never safe, and skip the read entirely rather than treat
-	 * a possible trap as a detection mechanism.
-	 */
-#if IS_ENABLED(CONFIG_ARM64_AMU_EXTN)
-	has_amu = cpu_has_amu_feat(cpu) &&
-		  read_sysreg_s(SYS_AMEVCNTR0_CORE_EL0);
-#else
-	has_amu = false;
-#endif
-	per_cpu(cpu_has_amu, cpu) = has_amu;
-	pr_info("CPU%u online, using %s\n", cpu, has_amu ? "AMU" : "PMU fallback");
+	pr_info("CPU%u online, using PMU cycle counter\n", cpu);
 
-	/*
-	 * Cortex-A510's constant-cycles erratum (ARM erratum 2457168) doesn't
-	 * apply to any core on this SoC generation (Kryo 685 is Cortex-X1/
-	 * A78/A55), so cpu_has_amu_const just tracks AMU availability here.
-	 */
-	per_cpu(cpu_has_amu_const, cpu) = has_amu;
-
-	if (!has_amu) {
-		ret = create_perf_events(cpu);
-		if (ret)
-			return ret;
-	}
+	ret = create_perf_events(cpu);
+	if (ret)
+		return ret;
 
 	/* Initialize the pointers to the saved CPU stats */
 	pmu->cur_ptr[0] = &pmu->cur[0];
@@ -930,7 +842,7 @@ static int fie_cpuhp_up(unsigned int cpu)
 	 * from firing during the measurement and thus skewing the data.
 	 */
 	local_irq_disable();
-	pmu_get_stats(&pmu->cur[0]);
+	fie_pmu_read(&pmu->cur[0]);
 	local_irq_enable();
 	reset_sfd_data(sfd);
 	reset_htd_data(htd);
@@ -942,8 +854,7 @@ static int fie_cpuhp_up(unsigned int cpu)
 
 static int fie_cpuhp_down(unsigned int cpu)
 {
-	if (!per_cpu(cpu_has_amu, cpu))
-		release_perf_events(cpu);
+	release_perf_events(cpu);
 
 	/*
 	 * Set the hardware throttle idle flag for this CPU, so this CPU is
@@ -1001,8 +912,8 @@ static int fie_debug_show(struct seq_file *m, void *v)
 {
 	int cpu;
 
-	seq_printf(m, "%-4s %-4s %10s %10s %10s\n",
-		  "cpu", "amu", "requested", "measured", "freq_scale");
+	seq_printf(m, "%-4s %10s %10s %10s\n",
+		  "cpu", "requested", "measured", "freq_scale");
 	for_each_online_cpu(cpu) {
 		unsigned long fs = per_cpu(freq_scale, cpu);
 		unsigned int max_freq = per_cpu(cpu_max_freq, cpu);
@@ -1014,9 +925,8 @@ static int fie_debug_show(struct seq_file *m, void *v)
 		if (policy)
 			cpufreq_cpu_put(policy);
 
-		seq_printf(m, "%-4d %-4d %10u %10llu %10lu\n",
-			  cpu, per_cpu(cpu_has_amu, cpu), requested,
-			  measured, fs);
+		seq_printf(m, "%-4d %10u %10llu %10lu\n",
+			  cpu, requested, measured, fs);
 	}
 	return 0;
 }
