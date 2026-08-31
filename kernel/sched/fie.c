@@ -312,10 +312,18 @@ fie_amu_const_read(struct pmu_stat *stat)
 {
 	register u64 cntpct, const_cyc, cpu_cyc;
 
+	/*
+	 * AMEVCNTR01_EL0 (S3_3_C13_C4_1, constant cycles) and AMEVCNTR00_EL0
+	 * (S3_3_C13_C4_0, core cycles) are referenced by raw encoding rather
+	 * than symbolic mnemonic -- this toolchain's LLD LTO codegen doesn't
+	 * recognize the amevcntr0*_el0 names (unlike the regular per-file
+	 * assembler pass), while the raw Sop0_op1_Cn_Cm_op2 form is always
+	 * accepted regardless of the assembler's symbolic sysreg table.
+	 */
 	asm volatile("isb\n\t"
 		     "mrs %0, cntpct_el0\n\t"
-		     "mrs %1, amevcntr01_el0\n\t"
-		     "mrs %2, amevcntr00_el0\n\t"
+		     "mrs %1, S3_3_C13_C4_1\n\t"
+		     "mrs %2, S3_3_C13_C4_0\n\t"
 		     "isb"
 		     : "=r" (cntpct), "=r" (const_cyc), "=r" (cpu_cyc));
 
@@ -327,9 +335,10 @@ fie_amu_read(struct pmu_stat *stat)
 {
 	register u64 cntpct, cpu_cyc;
 
+	/* AMEVCNTR00_EL0 (S3_3_C13_C4_0, core cycles) -- see fie_amu_const_read() */
 	asm volatile("isb\n\t"
 		     "mrs %0, cntpct_el0\n\t"
-		     "mrs %1, amevcntr00_el0\n\t"
+		     "mrs %1, S3_3_C13_C4_0\n\t"
 		     "isb"
 		     : "=r" (cntpct), "=r" (cpu_cyc));
 
