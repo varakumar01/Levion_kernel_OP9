@@ -3,13 +3,17 @@
  * Copyright (C) 2024-2025 Sultan Alsawaf <sultan@kerneltoast.com>.
  */
 
+#define pr_fmt(fmt) "fie: " fmt
+
 #include <linux/arch_topology.h>
 #include <linux/cpufreq.h>
 #include <linux/cpuhotplug.h>
+#include <linux/debugfs.h>
 #include <linux/fie.h>
 #include <linux/perf_event.h>
 #include <linux/reboot.h>
 #include <linux/sched/topology.h>
+#include <linux/seq_file.h>
 #include <linux/smp.h>
 #include <linux/units.h>
 #include <asm/arch_timer.h>
@@ -888,6 +892,7 @@ static int fie_cpuhp_up(unsigned int cpu)
 	has_amu = false;
 #endif
 	per_cpu(cpu_has_amu, cpu) = has_amu;
+	pr_info("CPU%u online, using %s\n", cpu, has_amu ? "AMU" : "PMU fallback");
 
 	/*
 	 * Cortex-A510's constant-cycles erratum (ARM erratum 2457168) doesn't
@@ -973,6 +978,39 @@ static struct notifier_block fie_reboot_nb = {
 	.priority = INT_MAX
 };
 
+/*
+ * Diagnostic-only: cat /sys/kernel/debug/fie/status to see each online CPU's
+ * live measured frequency (freq_scale converted back to kHz using that CPU's
+ * max frequency) alongside what the governor last requested. If FIE is
+ * working, "measured" moves independently of "requested" -- most visibly
+ * during sustained load, where a real hardware/firmware throttle shows
+ * "measured" pinned below "requested".
+ */
+static int fie_debug_show(struct seq_file *m, void *v)
+{
+	int cpu;
+
+	seq_printf(m, "%-4s %-4s %10s %10s %10s\n",
+		  "cpu", "amu", "requested", "measured", "freq_scale");
+	for_each_online_cpu(cpu) {
+		unsigned long fs = per_cpu(freq_scale, cpu);
+		unsigned int max_freq = per_cpu(cpu_max_freq, cpu);
+		struct cpufreq_policy *policy = cpufreq_cpu_get(cpu);
+		unsigned int requested = policy ? policy->cur : 0;
+		u64 measured = max_freq ?
+			(u64)fs * max_freq / SCHED_CAPACITY_SCALE : 0;
+
+		if (policy)
+			cpufreq_cpu_put(policy);
+
+		seq_printf(m, "%-4d %-4d %10u %10llu %10lu\n",
+			  cpu, per_cpu(cpu_has_amu, cpu), requested,
+			  measured, fs);
+	}
+	return 0;
+}
+DEFINE_SHOW_ATTRIBUTE(fie_debug);
+
 static int __init fie_init(void)
 {
 	/* Register the CPU hotplug notifier with calls to all online CPUs */
@@ -982,6 +1020,9 @@ static int __init fie_init(void)
 
 	/* Precompute arithmetic to convert between ticks and nanoseconds */
 	calc_cntpct_arith();
+
+	debugfs_create_file("status", 0444, debugfs_create_dir("fie", NULL),
+			    NULL, &fie_debug_fops);
 
 	/*
 	 * fie_update_rq_clock(), update_cpu_hw_throttle(), and fie_cpu_idle()
