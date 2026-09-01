@@ -523,8 +523,9 @@ static unsigned long sugov_get_util(struct sugov_cpu *sg_cpu)
 
 #ifdef CONFIG_SCHED_WALT
 	util = cpu_util_freq_walt(sg_cpu->cpu, &sg_cpu->walt_load);
+	util = uclamp_rq_util_with(rq, util, NULL);
 
-	return uclamp_rq_util_with(rq, util, NULL);
+	return apply_dvfs_headroom(util, sg_cpu);
 #else
 	util = cpu_util_cfs(rq);
 	util = schedutil_cpu_util(sg_cpu->cpu, util, max, FREQUENCY_UTIL, NULL);
