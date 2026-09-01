@@ -5,6 +5,9 @@
 #include <linux/rculist.h>
 #include <linux/vmalloc.h>
 #include <linux/workqueue.h>
+#include <linux/inetdevice.h>
+#include <linux/rtnetlink.h>
+#include <net/arp.h>
 #include <net/neighbour.h>
 #include <net/netevent.h>
 
@@ -59,6 +62,106 @@ static DEFINE_SPINLOCK(neigh_lock);
 static struct proc_dir_entry *proc_neigh_entry;
 static atomic_t neigh_entries_count = ATOMIC_INIT(0);
 static struct delayed_work neigh_gc_work;
+static atomic64_t arp_frames_observed = ATOMIC64_INIT(0);
+static atomic64_t radar_probes_sent = ATOMIC64_INIT(0);
+
+struct stealth_radar_scan {
+	struct delayed_work work;
+	struct mutex lock;
+	struct net_device *dev;
+	__be32 source;
+	u32 next_host;
+	u32 last;
+	bool active;
+};
+
+static struct stealth_radar_scan radar_scan;
+
+static void radar_scan_work(struct work_struct *work)
+{
+	struct stealth_radar_scan *scan =
+		container_of(to_delayed_work(work), struct stealth_radar_scan, work);
+	struct net_device *dev;
+	__be32 source, target;
+	int batch = 8;
+
+	mutex_lock(&scan->lock);
+	dev = scan->dev;
+	source = scan->source;
+	while (scan->active && scan->next_host <= scan->last && batch--) {
+		target = htonl(scan->next_host++);
+		if (target == source)
+			continue;
+		arp_send(ARPOP_REQUEST, ETH_P_ARP, target, dev, source,
+			 NULL, dev->dev_addr, NULL);
+		atomic64_inc(&radar_probes_sent);
+	}
+	if (scan->active && scan->next_host <= scan->last) {
+		schedule_delayed_work(&scan->work, msecs_to_jiffies(20));
+		mutex_unlock(&scan->lock);
+		return;
+	}
+	if (scan->active) {
+		scan->active = false;
+		scan->dev = NULL;
+		dev_put(dev);
+	}
+	mutex_unlock(&scan->lock);
+}
+
+static int radar_start_scan(const char *ifname)
+{
+	struct net_device *dev;
+	struct in_device *in_dev;
+	struct in_ifaddr *ifa;
+	u32 address, mask, network, broadcast, hosts;
+	int ret = 0;
+
+	mutex_lock(&radar_scan.lock);
+	if (radar_scan.active) {
+		ret = -EBUSY;
+		goto out_unlock;
+	}
+	dev = dev_get_by_name(&init_net, ifname);
+	if (!dev) {
+		ret = -ENODEV;
+		goto out_unlock;
+	}
+	if (!(dev->flags & IFF_UP) || dev->type != ARPHRD_ETHER) {
+		ret = -ENETDOWN;
+		goto out_put;
+	}
+	rtnl_lock();
+	in_dev = __in_dev_get_rtnl(dev);
+	ifa = in_dev ? rcu_dereference_rtnl(in_dev->ifa_list) : NULL;
+	if (!ifa) {
+		rtnl_unlock();
+		ret = -EADDRNOTAVAIL;
+		goto out_put;
+	}
+	address = ntohl(ifa->ifa_local);
+	mask = ntohl(ifa->ifa_mask);
+	rtnl_unlock();
+	hosts = ~mask;
+	if (hosts < 2 || hosts > 255) {
+		ret = -E2BIG;
+		goto out_put;
+	}
+	network = address & mask;
+	broadcast = network | hosts;
+	radar_scan.dev = dev;
+	radar_scan.source = htonl(address);
+	radar_scan.next_host = network + 1;
+	radar_scan.last = broadcast - 1;
+	radar_scan.active = true;
+	schedule_delayed_work(&radar_scan.work, 0);
+	goto out_unlock;
+out_put:
+	dev_put(dev);
+out_unlock:
+	mutex_unlock(&radar_scan.lock);
+	return ret;
+}
 
 static const char *get_mac_type(const u8 *mac)
 {
@@ -135,10 +238,23 @@ static void neigh_handle_mac_change(struct stealth_neigh_node *entry,
 	entry->fast_flips = (delta < POISON_WINDOW_HZ) ? (entry->fast_flips + 1) : 1;
 	if (dev_changed)
 		goto update_state;
-	is_poison_burst = (entry->fast_flips >= MIN_FLIPS_FOR_POISON) ||
+	is_poison_burst = atomic_read(&stealth_ghost_mode) >= 2 ||
+			  (entry->fast_flips >= MIN_FLIPS_FOR_POISON) ||
 			  (is_bounce && delta < POISON_WINDOW_HZ && entry->fast_flips >= 2);
-	if (is_poison_burst)
+	if (is_poison_burst) {
 		atomic_inc(&entry->poison_alerts);
+		if (atomic_read(&stealth_ghost_mode) >= 2 &&
+		    !READ_ONCE(entry->is_blocked)) {
+			WRITE_ONCE(entry->is_blocked, true);
+			atomic64_inc(&stealth_mitm_blocks);
+			if (entry->ip_version == 4)
+				pr_warn_ratelimited("[%s] possible ARP poisoning: %pI4 changed MAC repeatedly on %s; traffic blocked\n",
+					TAG, &entry->ip.v4, entry->dev_name);
+			else
+				pr_warn_ratelimited("[%s] possible NDP poisoning: %pI6c changed MAC repeatedly on %s; traffic blocked\n",
+					TAG, &entry->ip.v6, entry->dev_name);
+		}
+	}
 update_state:
 	ether_addr_copy(entry->prev_mac, entry->mac);
 	ether_addr_copy(entry->mac, new_mac);
@@ -216,6 +332,44 @@ static void neigh_update_or_add(struct net *net, int ifindex, u8 ip_ver,
 	atomic_inc(&neigh_entries_count);
 	spin_unlock_bh(&neigh_lock);
 }
+
+static int stealth_arp_receive(struct sk_buff *skb, struct net_device *dev,
+			       struct packet_type *pt,
+			       struct net_device *orig_dev)
+{
+	struct arphdr *arp;
+	u8 *ptr, mac[ETH_ALEN];
+	__be32 sender_ip;
+
+	skb = skb_share_check(skb, GFP_ATOMIC);
+	if (!skb)
+		return NET_RX_DROP;
+	if (!dev || dev->addr_len != ETH_ALEN ||
+	    !pskb_may_pull(skb, arp_hdr_len(dev)))
+		goto out;
+	arp = arp_hdr(skb);
+	if (!arp || arp->ar_hrd != htons(ARPHRD_ETHER) ||
+	    arp->ar_pro != htons(ETH_P_IP) || arp->ar_hln != ETH_ALEN ||
+	    arp->ar_pln != sizeof(sender_ip))
+		goto out;
+	ptr = (u8 *)(arp + 1);
+	ether_addr_copy(mac, ptr);
+	memcpy(&sender_ip, ptr + ETH_ALEN, sizeof(sender_ip));
+	if (!is_zero_ether_addr(mac) && !is_multicast_ether_addr(mac) &&
+	    sender_ip != htonl(INADDR_ANY)) {
+		atomic64_inc(&arp_frames_observed);
+		neigh_update_or_add(dev_net(dev), dev->ifindex, 4,
+				    &sender_ip, mac, dev->name);
+	}
+out:
+	consume_skb(skb);
+	return NET_RX_SUCCESS;
+}
+
+static struct packet_type stealth_arp_packet_type __read_mostly = {
+	.type = cpu_to_be16(ETH_P_ARP),
+	.func = stealth_arp_receive,
+};
 
 void stealth_neigh_set_hostname(struct net *net, int ifindex, u8 ip_ver,
 				const void *ip_ptr, const char *name)
@@ -323,6 +477,10 @@ static int stealth_neigh_set_block_state(const char *ip_str, bool blocked)
 		if (!neigh_ip_equal(entry, ip_ver, ip_ptr))
 			continue;
 		WRITE_ONCE(entry->is_blocked, blocked);
+		if (!blocked) {
+			entry->fast_flips = 0;
+			entry->poison_window_start = jiffies;
+		}
 		found = true;
 	}
 	spin_unlock_bh(&neigh_lock);
@@ -379,6 +537,17 @@ static int stealth_neigh_show(struct seq_file *m, void *v)
 	const char *state_str;
 	unsigned long ago_sec;
 	int bkt;
+	bool scan_active;
+	char scan_dev[IFNAMSIZ] = "-";
+
+	mutex_lock(&radar_scan.lock);
+	scan_active = radar_scan.active;
+	if (radar_scan.dev)
+		strscpy(scan_dev, radar_scan.dev->name, sizeof(scan_dev));
+	mutex_unlock(&radar_scan.lock);
+	seq_printf(m, "# RADAR active=%d dev=%s arp_seen=%lld probes=%lld\n",
+		scan_active, scan_dev, atomic64_read(&arp_frames_observed),
+		atomic64_read(&radar_probes_sent));
 
 	spin_lock_bh(&neigh_lock);
 	hash_for_each(neigh_hash, bkt, entry, hnode)
@@ -435,6 +604,8 @@ static int stealth_neigh_show(struct seq_file *m, void *v)
 
 static int stealth_neigh_open(struct inode *inode, struct file *file)
 {
+	if (!stealth_admin_capable())
+		return -EPERM;
 	return single_open(file, stealth_neigh_show, NULL);
 }
 
@@ -446,7 +617,7 @@ static ssize_t stealth_neigh_write(struct file *file, const char __user *ubuf,
 	size_t len;
 	int ret;
 
-	if (!capable(CAP_NET_ADMIN))
+	if (!stealth_admin_capable())
 		return -EPERM;
 	if (!count || count >= kbuf_sz)
 		return -EINVAL;
@@ -474,6 +645,12 @@ static ssize_t stealth_neigh_write(struct file *file, const char __user *ubuf,
 			return ret;
 		return count;
 	}
+	if (!strcmp(cmd, "scan")) {
+		ret = radar_start_scan(ip_str);
+		if (ret)
+			return ret;
+		return count;
+	}
 	return -EINVAL;
 }
 
@@ -491,7 +668,11 @@ int stealth_neigh_init(void)
 
 	hash_init(neigh_hash);
 	atomic_set(&neigh_entries_count, 0);
-	proc_neigh_entry = proc_create(PROC_NEIGH_FILENAME, 0660, NULL, &stealth_neigh_proc_ops);
+	mutex_init(&radar_scan.lock);
+	INIT_DELAYED_WORK(&radar_scan.work, radar_scan_work);
+	radar_scan.active = false;
+	radar_scan.dev = NULL;
+	proc_neigh_entry = proc_create(PROC_NEIGH_FILENAME, 0600, NULL, &stealth_neigh_proc_ops);
 	if (!proc_neigh_entry)
 		return -ENOMEM;
 	ret = register_netevent_notifier(&stealth_neigh_nb);
@@ -502,13 +683,27 @@ int stealth_neigh_init(void)
 	}
 	INIT_DELAYED_WORK(&neigh_gc_work, neigh_gc_func);
 	schedule_delayed_work(&neigh_gc_work, NEIGH_GC_INTERVAL_HZ);
+	dev_add_pack(&stealth_arp_packet_type);
 	return 0;
 }
 
 void stealth_neigh_cleanup(void)
 {
+	struct net_device *scan_dev = NULL;
+
+	dev_remove_pack(&stealth_arp_packet_type);
 	unregister_netevent_notifier(&stealth_neigh_nb);
 	cancel_delayed_work_sync(&neigh_gc_work);
+	cancel_delayed_work_sync(&radar_scan.work);
+	mutex_lock(&radar_scan.lock);
+	if (radar_scan.active) {
+		scan_dev = radar_scan.dev;
+		radar_scan.dev = NULL;
+		radar_scan.active = false;
+	}
+	mutex_unlock(&radar_scan.lock);
+	if (scan_dev)
+		dev_put(scan_dev);
 	if (proc_neigh_entry) {
 		proc_remove(proc_neigh_entry);
 		proc_neigh_entry = NULL;
