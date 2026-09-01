@@ -6,6 +6,9 @@
 #include <linux/sysfs.h>
 
 atomic_t stealth_enabled = ATOMIC_INIT(1);
+atomic_t stealth_ghost_mode = ATOMIC_INIT(0);
+atomic64_t stealth_ghost_drops = ATOMIC64_INIT(0);
+atomic64_t stealth_mitm_blocks = ATOMIC64_INIT(0);
 static struct kobject *stealth_kobj;
 
 static ssize_t enabled_show(struct kobject *kobj,
@@ -20,6 +23,8 @@ static ssize_t enabled_store(struct kobject *kobj,
 {
 	bool val;
 
+	if (!stealth_admin_capable())
+		return -EPERM;
 	if (kstrtobool(buf, &val))
 		return -EINVAL;
 	atomic_set(&stealth_enabled, val ? 1 : 0);
@@ -31,8 +36,42 @@ static ssize_t enabled_store(struct kobject *kobj,
 static struct kobj_attribute enabled_attr =
 	__ATTR_RW(enabled);
 
+static ssize_t ghost_mode_show(struct kobject *kobj,
+	struct kobj_attribute *attr, char *buf)
+{
+	return sysfs_emit(buf, "%d\n", atomic_read(&stealth_ghost_mode));
+}
+
+static ssize_t ghost_mode_store(struct kobject *kobj,
+	struct kobj_attribute *attr, const char *buf, size_t count)
+{
+	unsigned int mode;
+
+	if (!stealth_admin_capable())
+		return -EPERM;
+	if (kstrtouint(buf, 0, &mode) || mode > 2)
+		return -EINVAL;
+	atomic_set(&stealth_ghost_mode, mode);
+	pr_info("Ghost mode: %s\n",
+		 mode == 0 ? "OFF" : mode == 1 ? "BALANCED" : "STRICT");
+	return count;
+}
+
+static ssize_t ghost_stats_show(struct kobject *kobj,
+	struct kobj_attribute *attr, char *buf)
+{
+	return sysfs_emit(buf, "drops=%lld mitm_blocks=%lld\n",
+		atomic64_read(&stealth_ghost_drops),
+		atomic64_read(&stealth_mitm_blocks));
+}
+
+static struct kobj_attribute ghost_mode_attr = __ATTR_RW(ghost_mode);
+static struct kobj_attribute ghost_stats_attr = __ATTR_RO(ghost_stats);
+
 static struct attribute *stealth_attrs[] = {
 	&enabled_attr.attr,
+	&ghost_mode_attr.attr,
+	&ghost_stats_attr.attr,
 	NULL,
 };
 
