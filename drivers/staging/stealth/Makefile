@@ -9,4 +9,8 @@ stealth_net-y := stealth_main.o \
                  stealth_proc.o \
                  stealth_hooks.o \
                  stealth_neigh.o \
+                 stealth_tcp.o \
+                 stealth_capture.o \
+                 stealth_ids.o \
+                 stealth_tunnel.o \
                  stealth_sysfs.o
