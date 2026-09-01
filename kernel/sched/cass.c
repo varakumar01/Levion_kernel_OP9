@@ -232,7 +232,7 @@ static int cass_best_cpu(struct task_struct *p, int prev_cpu, bool sync, bool rt
 		curr->cap_orig = arch_scale_cpu_capacity(cpu);
 
 		/* Get the _current_, throttled maximum capacity of this CPU */
-		curr->cap_max = curr->cap_orig - thermal_load_avg(rq);
+		curr->cap_max = min(curr->cap_orig, thermal_cap(cpu));
 
 		/* Prefer the CPU that more closely meets the uclamp minimum */
 		if (curr->cap_max < uc_min && curr->cap_max < best->cap_max)
