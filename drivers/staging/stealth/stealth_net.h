@@ -26,16 +26,20 @@
 #include <linux/jiffies.h>
 #include <linux/refcount.h>
 #include <linux/bitmap.h>
+#include <linux/capability.h>
+#include <linux/user_namespace.h>
 #include <net/sock.h>
 #include <net/ip.h>
 #include <net/ipv6.h>
 #include <net/checksum.h>
 #include <net/net_namespace.h>
+#include <net/netfilter/nf_conntrack.h>
 
 #define TAG "stealth_net"
 #define PROC_FILENAME "stealth_dns"
 #define PROC_EVENTS_FILENAME "stealth_events"
 #define PROC_NEIGH_FILENAME "stealth_neigh"
+#define PROC_TUNNEL_FILENAME "stealth_tunnel"
 
 #define DNS_PORT 53
 #define HTTPS_PORT 443
@@ -159,8 +163,18 @@ extern struct stealth_crypto_ctx quic_crypto_ctx;
 extern atomic_t total_packets_hooked;
 extern atomic_t total_dns_detected;
 extern atomic_t stealth_enabled;
+extern atomic_t stealth_ghost_mode;
+extern atomic64_t stealth_ghost_drops;
+extern atomic64_t stealth_mitm_blocks;
 extern spinlock_t rules_lock;
 extern struct hlist_head dns_rules_hash[1 << HASH_BITS_EXP];
+
+/* This module controls global networking state, so capabilities from a
+ * nested user namespace must never authorize its control plane. */
+static inline bool stealth_admin_capable(void)
+{
+	return ns_capable(&init_user_ns, CAP_NET_ADMIN);
+}
 
 /* Event Queue & WaitQueue API */
 void events_fifo_init(void);
@@ -209,6 +223,27 @@ int stealth_sysfs_init(void);
 void stealth_sysfs_cleanup(void);
 int stealth_proc_init(void);
 void stealth_proc_cleanup(void);
+int stealth_tcp_init(void);
+void stealth_tcp_cleanup(void);
+bool stealth_tcp_filter(struct sk_buff *skb, const struct nf_hook_state *state,
+			int trans_off, u8 protocol, bool outbound);
+int stealth_capture_init(void);
+void stealth_capture_cleanup(void);
+void stealth_capture_packet(struct sk_buff *skb,
+			    const struct nf_hook_state *state, int trans_off,
+			    u8 protocol, bool outbound, const char *verdict,
+			    const char *reason);
+int stealth_ids_init(void);
+void stealth_ids_cleanup(void);
+bool stealth_ids_filter(struct sk_buff *skb,
+			const struct nf_hook_state *state, int trans_off,
+			u8 protocol);
+
+/* Userspace tunnel policy / leak guard API */
+int stealth_tunnel_init(void);
+void stealth_tunnel_cleanup(void);
+bool stealth_tunnel_filter(const struct sk_buff *skb,
+			   const struct nf_hook_state *state);
 
 /* Neighbour/ARP/NDP monitoring API */
 int stealth_neigh_init(void);
