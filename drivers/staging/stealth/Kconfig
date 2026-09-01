@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: GPL-2.0-only
 config STEALTH_NET
-	tristate "Stealth In-Kernel DNS/SNI Engine"
-	depends on NETFILTER && INET && CRYPTO
+	bool "Stealth In-Kernel DNS/SNI Engine"
+	depends on NETFILTER && INET && CRYPTO && NF_CONNTRACK
 	select CRYPTO_AES
 	select CRYPTO_ECB
 	select CRYPTO_GCM
@@ -11,6 +11,17 @@ config STEALTH_NET
 	help
 	  In-kernel network inspector and modifier.
 	  Provides stealth DNS blocking, spoofing, and TLS SNI audit.
+	  Optional ghost modes reject unsolicited inbound traffic, suppress
+	  local discovery and protect learned ARP/NDP neighbour mappings.
+	  Provides bounded TCP telemetry, VPN MSS clamping and optional TCP
+	  hardening without tracepoint dependencies.
+	  Provides an opt-in, metadata-only /proc capture stream with UID,
+	  interface, direction and firewall verdict attribution.
+	  Includes an opt-in local IDS with scan detection, canary ports,
+	  trusted peers and expiring source bans.
+	  Includes an opt-in userspace tunnel leak guard. It can audit or
+	  fail closed unless application traffic uses a configured TUN
+	  interface, while exempting the configured relay daemon UID.
 	  Includes /proc/stealth_dns and /proc/stealth_events interfaces.
 
 	  If unsure, say Y.
