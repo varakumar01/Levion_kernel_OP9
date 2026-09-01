@@ -1,5 +1,103 @@
 // SPDX-License-Identifier: GPL-2.0-only
 #include "stealth_net.h"
+#include <linux/icmp.h>
+#include <linux/icmpv6.h>
+#include <linux/if.h>
+
+static bool ghost_is_tracked_reply(const struct sk_buff *skb)
+{
+	enum ip_conntrack_info ctinfo;
+	struct nf_conn *ct;
+
+	ct = nf_ct_get(skb, &ctinfo);
+	if (!ct)
+		return false;
+	return ctinfo == IP_CT_ESTABLISHED_REPLY ||
+	       ctinfo == IP_CT_RELATED_REPLY ||
+	       ctinfo == IP_CT_ESTABLISHED || ctinfo == IP_CT_RELATED;
+}
+
+static bool ghost_discovery_port(__be16 dest)
+{
+	return dest == htons(137) || dest == htons(138) ||
+	       dest == htons(1900) || dest == htons(5353) ||
+	       dest == htons(5355);
+}
+
+static bool ghost_drop_ipv4_out(const struct sk_buff *skb,
+				const struct iphdr *iph, int trans_off)
+{
+	struct udphdr _udph, *udph;
+
+	if (atomic_read(&stealth_ghost_mode) < 2 || iph->protocol != IPPROTO_UDP)
+		return false;
+	udph = skb_header_pointer(skb, trans_off, sizeof(_udph), &_udph);
+	if (!udph)
+		return false;
+	return ghost_discovery_port(udph->dest);
+}
+
+static bool ghost_drop_ipv6_out(const struct sk_buff *skb, u8 nexthdr,
+				int trans_off)
+{
+	struct udphdr _udph, *udph;
+
+	if (atomic_read(&stealth_ghost_mode) < 2 || nexthdr != IPPROTO_UDP)
+		return false;
+	udph = skb_header_pointer(skb, trans_off, sizeof(_udph), &_udph);
+	if (!udph)
+		return false;
+	return ghost_discovery_port(udph->dest);
+}
+
+static bool ghost_drop_ipv4_in(const struct sk_buff *skb,
+			       const struct iphdr *iph, int trans_off)
+{
+	struct icmphdr _icmph, *icmph;
+	struct udphdr _udph, *udph;
+
+	if (!atomic_read(&stealth_ghost_mode) || ghost_is_tracked_reply(skb))
+		return false;
+	if (iph->protocol == IPPROTO_UDP) {
+		udph = skb_header_pointer(skb, trans_off, sizeof(_udph), &_udph);
+		if (udph && udph->source == htons(67) && udph->dest == htons(68))
+			return false;
+		return true;
+	}
+	if (iph->protocol == IPPROTO_TCP)
+		return true;
+	if (iph->protocol != IPPROTO_ICMP)
+		return false;
+	icmph = skb_header_pointer(skb, trans_off, sizeof(_icmph), &_icmph);
+	return icmph && icmph->type == ICMP_ECHO;
+}
+
+static bool ghost_drop_ipv6_in(const struct sk_buff *skb, u8 nexthdr,
+			       int trans_off)
+{
+	struct icmp6hdr _icmp6h, *icmp6h;
+	struct udphdr _udph, *udph;
+
+	if (!atomic_read(&stealth_ghost_mode) || ghost_is_tracked_reply(skb))
+		return false;
+	if (nexthdr == IPPROTO_UDP) {
+		udph = skb_header_pointer(skb, trans_off, sizeof(_udph), &_udph);
+		if (udph && udph->source == htons(547) && udph->dest == htons(546))
+			return false;
+		return true;
+	}
+	if (nexthdr == IPPROTO_TCP)
+		return true;
+	if (nexthdr != IPPROTO_ICMPV6)
+		return false;
+	icmp6h = skb_header_pointer(skb, trans_off, sizeof(_icmp6h), &_icmp6h);
+	if (!icmp6h)
+		return false;
+	if (icmp6h->icmp6_type < 128 ||
+	    (icmp6h->icmp6_type >= 133 && icmp6h->icmp6_type <= 137))
+		return false;
+	return icmp6h->icmp6_type == ICMPV6_ECHO_REQUEST;
+}
 
 static struct sk_buff *craft_spoof_reply(struct sk_buff *skb, const u8 *qbuf,
 	int qlen, uint16_t id, uint16_t flags, uint16_t qtype,
@@ -202,6 +300,25 @@ static unsigned int hook_dns_ipv4(void *priv, struct sk_buff *skb,
 							 &iph->daddr)))
 			return NF_DROP;
 	}
+	if (unlikely(stealth_tunnel_filter(skb, state))) {
+		stealth_capture_packet(skb, state, ip_hl, iph->protocol, true,
+				       "DROP", "tunnel_leak");
+		return NF_DROP;
+	}
+	if (state->out && !(state->out->flags & IFF_LOOPBACK) &&
+	    unlikely(ghost_drop_ipv4_out(skb, iph, ip_hl))) {
+		stealth_capture_packet(skb, state, ip_hl, iph->protocol, true,
+				       "DROP", "ghost");
+		atomic64_inc(&stealth_ghost_drops);
+		return NF_DROP;
+	}
+	if (unlikely(stealth_tcp_filter(skb, state, ip_hl, iph->protocol, true))) {
+		stealth_capture_packet(skb, state, ip_hl, iph->protocol, true,
+				       "DROP", "tcp_hardening");
+		return NF_DROP;
+	}
+	stealth_capture_packet(skb, state, ip_hl, iph->protocol, true,
+			       "ACCEPT", "-");
 	inspect_app_traffic(skb, state, ip_hl, iph->protocol, tot_len, false,
 		&iph->daddr);
 	if (iph->protocol != IPPROTO_UDP)
@@ -236,10 +353,29 @@ static unsigned int hook_dns_ipv6(void *priv, struct sk_buff *skb,
 							 &iph->daddr)))
 			return NF_DROP;
 	}
+	if (unlikely(stealth_tunnel_filter(skb, state))) {
+		stealth_capture_packet(skb, state, sizeof(*iph), iph->nexthdr,
+				       true, "DROP", "tunnel_leak");
+		return NF_DROP;
+	}
 	nexthdr = iph->nexthdr;
 	trans_off = ipv6_skip_exthdr(skb, ip_len, &nexthdr, &frag_off);
 	if (unlikely(trans_off < 0 || frag_off != 0))
 		return NF_ACCEPT;
+	if (state->out && !(state->out->flags & IFF_LOOPBACK) &&
+	    unlikely(ghost_drop_ipv6_out(skb, nexthdr, trans_off))) {
+		stealth_capture_packet(skb, state, trans_off, nexthdr, true,
+				       "DROP", "ghost");
+		atomic64_inc(&stealth_ghost_drops);
+		return NF_DROP;
+	}
+	if (unlikely(stealth_tcp_filter(skb, state, trans_off, nexthdr, true))) {
+		stealth_capture_packet(skb, state, trans_off, nexthdr, true,
+				       "DROP", "tcp_hardening");
+		return NF_DROP;
+	}
+	stealth_capture_packet(skb, state, trans_off, nexthdr, true,
+			       "ACCEPT", "-");
 	inspect_app_traffic(skb, state, trans_off, nexthdr, tot_len, true,
 		&iph->daddr);
 	if (nexthdr != IPPROTO_UDP)
@@ -252,7 +388,7 @@ static unsigned int hook_neigh_ipv4_in(void *priv, struct sk_buff *skb,
 	const struct nf_hook_state *state)
 {
 	struct iphdr _iph, *iph;
-	int tot_len;
+	int tot_len, ip_hl;
 
 	if (unlikely(!atomic_read(&stealth_enabled)))
 		return NF_ACCEPT;
@@ -262,20 +398,40 @@ static unsigned int hook_neigh_ipv4_in(void *priv, struct sk_buff *skb,
 	tot_len = ntohs(iph->tot_len);
 	if (unlikely(tot_len < iph->ihl * 4 || tot_len > skb->len))
 		return NF_ACCEPT;
+	ip_hl = iph->ihl * 4;
 	if (!state->in)
 		return NF_ACCEPT;
 	stealth_neigh_account_traffic(state->net, state->in->ifindex, 4,
 				       &iph->saddr, tot_len, false);
-	return stealth_neigh_is_ip_blocked(state->net, state->in->ifindex, 4,
-		&iph->saddr) ?
-		NF_DROP : NF_ACCEPT;
+	if (unlikely(stealth_ids_filter(skb, state, ip_hl, iph->protocol))) {
+		stealth_capture_packet(skb, state, ip_hl, iph->protocol, false,
+				       "DROP", "ids");
+		return NF_DROP;
+	}
+	if (stealth_neigh_is_ip_blocked(state->net, state->in->ifindex, 4,
+					&iph->saddr) ||
+	    (!(state->in->flags & IFF_LOOPBACK) &&
+	     ghost_drop_ipv4_in(skb, iph, ip_hl))) {
+		atomic64_inc(&stealth_ghost_drops);
+		return NF_DROP;
+	}
+	if (unlikely(stealth_tcp_filter(skb, state, ip_hl, iph->protocol, false))) {
+		stealth_capture_packet(skb, state, ip_hl, iph->protocol, false,
+				       "DROP", "tcp_hardening");
+		return NF_DROP;
+	}
+	stealth_capture_packet(skb, state, ip_hl, iph->protocol, false,
+			       "ACCEPT", "-");
+	return NF_ACCEPT;
 }
 
 static unsigned int hook_neigh_ipv6_in(void *priv, struct sk_buff *skb,
 	const struct nf_hook_state *state)
 {
 	struct ipv6hdr _iph, *iph;
-	int tot_len;
+	int tot_len, trans_off;
+	u8 nexthdr;
+	__be16 frag_off;
 
 	if (unlikely(!atomic_read(&stealth_enabled)))
 		return NF_ACCEPT;
@@ -289,9 +445,35 @@ static unsigned int hook_neigh_ipv6_in(void *priv, struct sk_buff *skb,
 		return NF_ACCEPT;
 	stealth_neigh_account_traffic(state->net, state->in->ifindex, 6,
 				       &iph->saddr, tot_len, false);
-	return stealth_neigh_is_ip_blocked(state->net, state->in->ifindex, 6,
-		&iph->saddr) ?
-		NF_DROP : NF_ACCEPT;
+	if (stealth_neigh_is_ip_blocked(state->net, state->in->ifindex, 6,
+					&iph->saddr)) {
+		atomic64_inc(&stealth_ghost_drops);
+		return NF_DROP;
+	}
+	nexthdr = iph->nexthdr;
+	trans_off = ipv6_skip_exthdr(skb, sizeof(*iph), &nexthdr, &frag_off);
+	if (trans_off >= 0 && frag_off == 0 &&
+	    unlikely(stealth_ids_filter(skb, state, trans_off, nexthdr))) {
+		stealth_capture_packet(skb, state, trans_off, nexthdr, false,
+				       "DROP", "ids");
+		return NF_DROP;
+	}
+	if (!(state->in->flags & IFF_LOOPBACK) &&
+	    trans_off >= 0 && frag_off == 0 &&
+	    ghost_drop_ipv6_in(skb, nexthdr, trans_off)) {
+		atomic64_inc(&stealth_ghost_drops);
+		return NF_DROP;
+	}
+	if (trans_off >= 0 && frag_off == 0 &&
+	    unlikely(stealth_tcp_filter(skb, state, trans_off, nexthdr, false))) {
+		stealth_capture_packet(skb, state, trans_off, nexthdr, false,
+				       "DROP", "tcp_hardening");
+		return NF_DROP;
+	}
+	if (trans_off >= 0 && frag_off == 0)
+		stealth_capture_packet(skb, state, trans_off, nexthdr, false,
+				       "ACCEPT", "-");
+	return NF_ACCEPT;
 }
 
 struct nf_hook_ops stealth_net_hooks[] = {
@@ -311,13 +493,13 @@ struct nf_hook_ops stealth_net_hooks[] = {
 		.hook = hook_neigh_ipv4_in,
 		.pf = NFPROTO_IPV4,
 		.hooknum = NF_INET_LOCAL_IN,
-		.priority = NF_IP_PRI_FIRST,
+		.priority = NF_IP_PRI_FILTER,
 	},
 	{
 		.hook = hook_neigh_ipv6_in,
 		.pf = NFPROTO_IPV6,
 		.hooknum = NF_INET_LOCAL_IN,
-		.priority = NF_IP_PRI_FIRST,
+		.priority = NF_IP_PRI_FILTER,
 	}
 };
 
