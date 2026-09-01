@@ -41,6 +41,9 @@ static int stealth_proc_show(struct seq_file *m, void *v)
 	seq_printf(m, "Total hooked packets: %d\n", atomic_read(&total_packets_hooked));
 	seq_printf(m, "Total DNS parsed: %d\n", atomic_read(&total_dns_detected));
 	seq_printf(m, "Audit all UIDs: %s\n", audit_all_enabled() ? "on" : "off");
+	seq_printf(m, "Ghost mode: %d\n", atomic_read(&stealth_ghost_mode));
+	seq_printf(m, "Ghost drops: %lld\n", atomic64_read(&stealth_ghost_drops));
+	seq_printf(m, "MITM blocks: %lld\n", atomic64_read(&stealth_mitm_blocks));
 	seq_puts(m, "# UID\tACTION\tHITS\tTARGET_IP\tDOMAIN\n");
 	spin_lock_bh(&rules_lock);
 	hash_for_each(dns_rules_hash, bkt, entry, hnode)
@@ -86,7 +89,16 @@ static int stealth_proc_show(struct seq_file *m, void *v)
 
 static int stealth_proc_open(struct inode *inode, struct file *file)
 {
+	if (!stealth_admin_capable())
+		return -EPERM;
 	return single_open(file, stealth_proc_show, NULL);
+}
+
+static int stealth_events_open(struct inode *inode, struct file *file)
+{
+	if (!stealth_admin_capable())
+		return -EPERM;
+	return nonseekable_open(inode, file);
 }
 
 static ssize_t stealth_events_read(struct file *file, char __user *buf, size_t count, loff_t *ppos)
@@ -153,7 +165,7 @@ static ssize_t stealth_proc_write(struct file *file, const char __user *buf, siz
 	u8 ip_ver = 0;
 	int args, parsed, ret;
 
-	if (!capable(CAP_NET_ADMIN)) return -EPERM;
+	if (!stealth_admin_capable()) return -EPERM;
 	if (count == 0 || count >= kbuf_sz) return -EINVAL;
 	if (copy_from_user(kbuf, buf, count)) return -EFAULT;
 	kbuf[count] = '\0';
@@ -164,6 +176,10 @@ static ssize_t stealth_proc_write(struct file *file, const char __user *buf, siz
 	}
 	if (!strcmp(kbuf, "flush")) {
 		rules_flush();
+		events_fifo_flush();
+		return count;
+	}
+	if (!strcmp(kbuf, "events flush")) {
 		events_fifo_flush();
 		return count;
 	}
@@ -234,6 +250,7 @@ static const struct proc_ops stealth_proc_ops = {
 };
 
 static const struct proc_ops stealth_events_ops = {
+	.proc_open    = stealth_events_open,
 	.proc_read    = stealth_events_read,
 	.proc_poll    = stealth_events_poll,
 	.proc_lseek   = noop_llseek,
@@ -241,9 +258,9 @@ static const struct proc_ops stealth_events_ops = {
 
 int stealth_proc_init(void)
 {
-	proc_entry = proc_create(PROC_FILENAME, 0660, NULL, &stealth_proc_ops);
+	proc_entry = proc_create(PROC_FILENAME, 0600, NULL, &stealth_proc_ops);
 	if (!proc_entry) return -ENOMEM;
-	proc_events_entry = proc_create(PROC_EVENTS_FILENAME, 0440, NULL, &stealth_events_ops);
+	proc_events_entry = proc_create(PROC_EVENTS_FILENAME, 0400, NULL, &stealth_events_ops);
 	if (!proc_events_entry) {
 		proc_remove(proc_entry);
 		return -ENOMEM;
