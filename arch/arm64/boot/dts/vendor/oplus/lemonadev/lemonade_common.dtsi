@@ -756,3 +756,19 @@
 		};
 	};
 };
+
+/* pm8350c.dtsi: only channels 0 and 1 are populated on this board
+ * (../../qcom/camera/lahaina-oem-camera-lemonade_t0.dtsi torch-source).
+ * switch_0 (led-mask 9 = ch 0+3) and switch_1 (led-mask 6 = ch 1+2) are
+ * used only by the CameraProviderExtension torch-strength path; their
+ * qcom,symmetry-en redistributes the requested current across channels
+ * that don't exist on this board, halving what reaches led:torch_0/1.
+ * switch_2 (camera flash) is untouched.
+ */
+&pm8350c_switch0 {
+	/delete-property/ qcom,symmetry-en;
+};
+
+&pm8350c_switch1 {
+	/delete-property/ qcom,symmetry-en;
+};
