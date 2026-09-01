@@ -3,7 +3,6 @@
  * Copyright (c) 2018-2021, The Linux Foundation. All rights reserved.
  */
 
-#include <linux/arch_topology.h>
 #include <linux/bitfield.h>
 #include <linux/cpufreq.h>
 #include <linux/cpu_cooling.h>
@@ -123,7 +122,6 @@ static unsigned long limits_mitigation_notify(struct cpufreq_qcom *c,
 	struct cpufreq_policy *policy;
 	u32 cpu = cpumask_first(&c->related_cpus);
 	unsigned long freq;
-	unsigned long max_capacity, capacity;
 
 	policy = cpufreq_cpu_get_raw(cpu);
 
@@ -145,21 +143,16 @@ static unsigned long limits_mitigation_notify(struct cpufreq_qcom *c,
 	 * hardware throttle detection (see fie_cpufreq_pressure() and
 	 * update_cpu_hw_throttle() in kernel/sched/fie.c) -- same pattern
 	 * FIE's own source tree uses in its equivalent qcom-cpufreq-hw.c
-	 * function. Also report it directly to the scheduler's thermal-
-	 * pressure signal, same as the generic cpufreq cooling device does in
-	 * cpufreq_set_cur_state(); sched_update_cpu_freq_min_max() above is a
-	 * no-op (CONFIG_SCHED_WALT is off on this defconfig).
+	 * function. FIE reports the aggregated result to the scheduler's
+	 * thermal-pressure signal itself (report_thermal_pressure() in
+	 * kernel/sched/fie.c); calling arch_set_thermal_pressure() again here
+	 * with just this one source would clobber that aggregate, and
+	 * sched_update_cpu_freq_min_max() above already reports this same
+	 * event to WALT's thermal_cap() when CONFIG_SCHED_WALT=y.
 	 */
-	if (policy) {
+	if (policy)
 		fie_cpufreq_pressure(cpu, freq >= policy->cpuinfo.max_freq ?
 				     UINT_MAX : freq);
-
-		max_capacity = arch_scale_cpu_capacity(cpu);
-		capacity = freq * max_capacity;
-		capacity /= policy->cpuinfo.max_freq;
-		arch_set_thermal_pressure(&c->related_cpus,
-					  max_capacity - capacity);
-	}
 
 	trace_dcvsh_freq(cpumask_first(&c->related_cpus), freq);
 	c->dcvsh_freq_limit = freq;
