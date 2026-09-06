@@ -66,6 +66,7 @@
 #include <linux/syscalls.h>
 #include <linux/task_work.h>
 #include <linux/android_vendor.h>
+#include <linux/oom.h>
 
 #include <uapi/linux/sched/types.h>
 #include <uapi/linux/android/binder.h>
@@ -788,7 +789,8 @@ static void binder_transaction_priority(struct binder_thread *thread,
 
 	t->set_priority_called = true;
 
-	if (!node->inherit_rt && is_rt_policy(desired.sched_policy)) {
+	if (!task_is_critical() &&
+	    !node->inherit_rt && is_rt_policy(desired.sched_policy)) {
 		desired.prio = NICE_TO_PRIO(0);
 		desired.sched_policy = SCHED_NORMAL;
 	}
@@ -825,7 +827,10 @@ static void binder_transaction_priority(struct binder_thread *thread,
 	}
 	spin_unlock(&thread->prio_lock);
 
-	binder_set_priority(thread, &desired);
+	if (task_is_critical())
+		binder_do_set_priority(thread, &desired, /* verify = */ false);
+	else
+		binder_set_priority(thread, &desired);
 	trace_android_vh_binder_set_priority(t, task);
 }
 
