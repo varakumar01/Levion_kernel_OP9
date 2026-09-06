@@ -632,6 +632,14 @@ struct cfs_rq {
 	struct rb_root_cached	tasks_timeline;
 
 	/*
+	 * 'S' extension: weighted average of all entity vruntimes, used to
+	 * approximate the ideal (EEVDF) scheduler's virtual time. See
+	 * avg_vruntime() in kernel/sched/fair.c.
+	 */
+	s64			avg_vruntime;
+	u64			avg_load;
+
+	/*
 	 * 'curr' points to currently running entity on this cfs_rq.
 	 * It is set to NULL otherwise (i.e when none are currently running).
 	 */
@@ -2518,6 +2526,8 @@ static inline void double_rq_unlock(struct rq *rq1, struct rq *rq2)
 
 extern struct sched_entity *__pick_first_entity(struct cfs_rq *cfs_rq);
 extern struct sched_entity *__pick_last_entity(struct cfs_rq *cfs_rq);
+
+extern u64 avg_vruntime(struct cfs_rq *cfs_rq);
 
 #ifdef	CONFIG_SCHED_DEBUG
 extern bool sched_debug_enabled;
