@@ -754,8 +754,12 @@ u64 avg_vruntime(struct cfs_rq *cfs_rq)
 		load += weight;
 	}
 
-	if (load)
+	if (load) {
+		/* sign flips effective floor / ceil */
+		if (avg < 0)
+			avg -= (load - 1);
 		avg = div_s64(avg, load);
+	}
 
 	return cfs_rq->min_vruntime + avg;
 }
@@ -776,7 +780,7 @@ u64 avg_vruntime(struct cfs_rq *cfs_rq)
  *
  * XXX could add max_slice to the augmented data to track this.
  */
-void update_entity_lag(struct cfs_rq *cfs_rq, struct sched_entity *se)
+static void update_entity_lag(struct cfs_rq *cfs_rq, struct sched_entity *se)
 {
 	s64 lag, limit;
 
@@ -975,14 +979,16 @@ static struct sched_entity *pick_cfs(struct cfs_rq *cfs_rq, struct sched_entity 
  *
  * Which allows an EDF like search on (sub)trees.
  */
-static struct sched_entity *pick_eevdf(struct cfs_rq *cfs_rq)
+static struct sched_entity *__pick_eevdf(struct cfs_rq *cfs_rq)
 {
 	struct rb_node *node = cfs_rq->tasks_timeline.rb_root.rb_node;
 	struct sched_entity *curr = cfs_rq->curr;
 	struct sched_entity *best = NULL;
+	struct sched_entity *best_left = NULL;
 
 	if (curr && (!curr->on_rq || !entity_eligible(cfs_rq, curr)))
 		curr = NULL;
+	best = curr;
 
 	while (node) {
 		struct sched_entity *se = __node_2_se(node);
@@ -996,33 +1002,75 @@ static struct sched_entity *pick_eevdf(struct cfs_rq *cfs_rq)
 		}
 
 		/*
-		 * If this entity has an earlier deadline than the previous
-		 * best, take this one. If it also has the earliest deadline
-		 * of its subtree, we're done.
+		 * Now we heap search eligible trees for the best (min_)deadline
 		 */
-		if (!best || deadline_gt(deadline, best, se)) {
+		if (!best || deadline_gt(deadline, best, se))
 			best = se;
-			if (best->deadline == best->min_deadline)
+
+		/*
+		 * Every se in a left branch is eligible, keep track of the
+		 * branch with the best min_deadline
+		 */
+		if (node->rb_left) {
+			struct sched_entity *left = __node_2_se(node->rb_left);
+
+			if (!best_left || deadline_gt(min_deadline, best_left, left))
+				best_left = left;
+
+			/*
+			 * min_deadline is in the left branch. rb_left and all
+			 * descendants are eligible, so immediately switch to the second
+			 * loop.
+			 */
+			if (left->min_deadline == se->min_deadline)
 				break;
 		}
 
-		/*
-		 * If the earlest deadline in this subtree is in the fully
-		 * eligible left half of our space, go there.
-		 */
+		/* min_deadline is at this node, no need to look right */
+		if (se->deadline == se->min_deadline)
+			break;
+
+		/* else min_deadline is in the right branch. */
+		node = node->rb_right;
+	}
+
+	/*
+	 * We ran into an eligible node which is itself the best.
+	 * (Or nr_running == 0 and both are NULL)
+	 */
+	if (!best_left || (s64)(best_left->min_deadline - best->deadline) > 0)
+		return best;
+
+	/*
+	 * Now best_left and all of its children are eligible, and we are just
+	 * looking for deadline == min_deadline
+	 */
+	node = &best_left->run_node;
+	while (node) {
+		struct sched_entity *se = __node_2_se(node);
+
+		/* min_deadline is the current node */
+		if (se->deadline == se->min_deadline)
+			return se;
+
+		/* min_deadline is in the left branch */
 		if (node->rb_left &&
 		    __node_2_se(node->rb_left)->min_deadline == se->min_deadline) {
 			node = node->rb_left;
 			continue;
 		}
 
+		/* else min_deadline is in the right branch */
 		node = node->rb_right;
 	}
+	return NULL;
+}
 
-	if (!best || (curr && deadline_gt(deadline, best, curr)))
-		best = curr;
+static struct sched_entity *pick_eevdf(struct cfs_rq *cfs_rq)
+{
+	struct sched_entity *se = __pick_eevdf(cfs_rq);
 
-	if (unlikely(!best)) {
+	if (!se) {
 		struct sched_entity *left = __pick_first_entity(cfs_rq);
 		if (left) {
 			pr_err("EEVDF scheduling fail, picking leftmost\n");
@@ -1030,7 +1078,7 @@ static struct sched_entity *pick_eevdf(struct cfs_rq *cfs_rq)
 		}
 	}
 
-	return best;
+	return se;
 }
 
 #ifdef CONFIG_SCHED_DEBUG
@@ -3317,40 +3365,142 @@ static inline void
 dequeue_load_avg(struct cfs_rq *cfs_rq, struct sched_entity *se) { }
 #endif
 
+static void reweight_eevdf(struct cfs_rq *cfs_rq, struct sched_entity *se,
+			   unsigned long weight)
+{
+	unsigned long old_weight = se->load.weight;
+	u64 avruntime = avg_vruntime(cfs_rq);
+	s64 vlag, vslice;
+
+	/*
+	 * VRUNTIME
+	 * ========
+	 *
+	 * COROLLARY #1: The virtual runtime of the entity needs to be
+	 * adjusted if re-weight at !0-lag point.
+	 *
+	 * Proof: For contradiction assume this is not true, so we can
+	 * re-weight without changing vruntime at !0-lag point.
+	 *
+	 *             Weight	VRuntime   Avg-VRuntime
+	 *     before    w          v            V
+	 *      after    w'         v'           V'
+	 *
+	 * Since lag needs to be preserved through re-weight:
+	 *
+	 *	lag = (V - v)*w = (V'- v')*w', where v = v'
+	 *	==>	V' = (V - v)*w/w' + v		(1)
+	 *
+	 * Let W be the total weight of the entities before reweight,
+	 * since V' is the new weighted average of entities:
+	 *
+	 *	V' = (WV + w'v - wv) / (W + w' - w)	(2)
+	 *
+	 * by using (1) & (2) we obtain:
+	 *
+	 *	(WV + w'v - wv) / (W + w' - w) = (V - v)*w/w' + v
+	 *	==> (WV-Wv+Wv+w'v-wv)/(W+w'-w) = (V - v)*w/w' + v
+	 *	==> (WV - Wv)/(W + w' - w) + v = (V - v)*w/w' + v
+	 *	==>	(V - v)*W/(W + w' - w) = (V - v)*w/w' (3)
+	 *
+	 * Since we are doing at !0-lag point which means V != v, we
+	 * can simplify (3):
+	 *
+	 *	==>	W / (W + w' - w) = w / w'
+	 *	==>	Ww' = Ww + ww' - ww
+	 *	==>	W * (w' - w) = w * (w' - w)
+	 *	==>	W = w	(re-weight indicates w' != w)
+	 *
+	 * So the cfs_rq contains only one entity, hence vruntime of
+	 * the entity @v should always equal to the cfs_rq's weighted
+	 * average vruntime @V, which means we will always re-weight
+	 * at 0-lag point, thus breach assumption. Proof completed.
+	 *
+	 *
+	 * COROLLARY #2: Re-weight does NOT affect weighted average
+	 * vruntime of all the entities.
+	 *
+	 * Proof: According to corollary #1, Eq. (1) should be:
+	 *
+	 *	(V - v)*w = (V' - v')*w'
+	 *	==>    v' = V' - (V - v)*w/w'		(4)
+	 *
+	 * According to the weighted average formula, we have:
+	 *
+	 *	V' = (WV - wv + w'v') / (W - w + w')
+	 *	   = (WV - wv + w'(V' - (V - v)w/w')) / (W - w + w')
+	 *	   = (WV - wv + w'V' - Vw + wv) / (W - w + w')
+	 *	   = (WV + w'V' - Vw) / (W - w + w')
+	 *
+	 *	==>  V'*(W - w + w') = WV + w'V' - Vw
+	 *	==>	V' * (W - w) = (W - w) * V	(5)
+	 *
+	 * If the entity is the only one in the cfs_rq, then reweight
+	 * always occurs at 0-lag point, so V won't change. Or else
+	 * there are other entities, hence W != w, then Eq. (5) turns
+	 * into V' = V. So V won't change in either case, proof done.
+	 *
+	 *
+	 * So according to corollary #1 & #2, the effect of re-weight
+	 * on vruntime should be:
+	 *
+	 *	v' = V' - (V - v) * w / w'		(4)
+	 *	   = V  - (V - v) * w / w'
+	 *	   = V  - vl * w / w'
+	 *	   = V  - vl'
+	 */
+	if (avruntime != se->vruntime) {
+		vlag = (s64)(avruntime - se->vruntime);
+		vlag = div_s64(vlag * old_weight, weight);
+		se->vruntime = avruntime - vlag;
+	}
+
+	/*
+	 * DEADLINE
+	 * ========
+	 *
+	 * When the weight changes, the virtual time slope changes and
+	 * we should adjust the relative virtual deadline accordingly.
+	 *
+	 *	d' = v' + (d - v)*w/w'
+	 *	   = V' - (V - v)*w/w' + (d - v)*w/w'
+	 *	   = V  - (V - v)*w/w' + (d - v)*w/w'
+	 *	   = V  + (d - V)*w/w'
+	 */
+	vslice = (s64)(se->deadline - avruntime);
+	vslice = div_s64(vslice * old_weight, weight);
+	se->deadline = avruntime + vslice;
+}
+
 static void reweight_entity(struct cfs_rq *cfs_rq, struct sched_entity *se,
 			    unsigned long weight, unsigned long runnable)
 {
-	unsigned long old_weight = se->load.weight;
+	bool curr = cfs_rq->curr == se;
 
 	if (se->on_rq) {
 		/* commit outstanding execution time */
-		if (cfs_rq->curr == se)
+		if (curr)
 			update_curr(cfs_rq);
 		else
-			avg_vruntime_sub(cfs_rq, se);
+			__dequeue_entity(cfs_rq, se);
 		account_entity_dequeue(cfs_rq, se);
 		dequeue_runnable_load_avg(cfs_rq, se);
 	}
 	dequeue_load_avg(cfs_rq, se);
 
 	se->runnable_weight = runnable;
-	update_load_set(&se->load, weight);
 
 	if (!se->on_rq) {
 		/*
 		 * Because we keep se->vlag = V - v_i, while: lag_i = w_i*(V - v_i),
 		 * we need to scale se->vlag when w_i changes.
 		 */
-		se->vlag = div_s64(se->vlag * old_weight, weight);
+		se->vlag = div_s64(se->vlag * se->load.weight, weight);
 	} else {
-		s64 deadline = se->deadline - se->vruntime;
-		/*
-		 * When the weight changes, the virtual time slope changes and
-		 * we should adjust the relative virtual deadline accordingly.
-		 */
-		deadline = div_s64(deadline * old_weight, weight);
-		se->deadline = se->vruntime + deadline;
+		reweight_eevdf(cfs_rq, se, weight);
 	}
+
+	update_load_set(&se->load, weight);
 
 #ifdef CONFIG_SMP
 	do {
@@ -3366,8 +3516,17 @@ static void reweight_entity(struct cfs_rq *cfs_rq, struct sched_entity *se,
 	if (se->on_rq) {
 		account_entity_enqueue(cfs_rq, se);
 		enqueue_runnable_load_avg(cfs_rq, se);
-		if (cfs_rq->curr != se)
-			avg_vruntime_add(cfs_rq, se);
+		if (!curr)
+			__enqueue_entity(cfs_rq, se);
+
+		/*
+		 * The entity's vruntime has been adjusted, so let's check
+		 * whether the rq-wide min_vruntime needs updated too. Since
+		 * the calculations above require stable min_vruntime rather
+		 * than up-to-date one, we do the update at the end of the
+		 * reweight process.
+		 */
+		update_min_vruntime(cfs_rq);
 	}
 }
 
@@ -4548,9 +4707,11 @@ static inline void set_entity_deadline(struct sched_entity *se, u64 vslice, int 
 static void
 place_entity(struct cfs_rq *cfs_rq, struct sched_entity *se, int initial)
 {
-	u64 vslice = calc_delta_fair(se->slice, se);
-	u64 vruntime = avg_vruntime(cfs_rq);
+	u64 vslice, vruntime = avg_vruntime(cfs_rq);
 	s64 lag = 0;
+
+	se->slice = sysctl_sched_min_granularity;
+	vslice = calc_delta_fair(se->slice, se);
 
 	/*
 	 * Due to how V is constructed as the weighted average of entities,
