@@ -9,7 +9,7 @@
 	};
     chosen {
         //#ifdef OPLUS_BSP_BOOTFLOW
-        bootargs = "log_buf_len=1M earlycon=msm_geni_serial,0x98c000 rcupdate.rcu_expedited=1 rcu_nocbs=0-7";
+        bootargs = "log_buf_len=1M earlycon=msm_geni_serial,0x98c000 rcu_nocbs=0-7";
         //#endif
         //bootargs = "log_buf_len=256K earlycon=msm_geni_serial,0x98c000 rcupdate.rcu_expedited=1 rcu_nocbs=0-7";
     };
