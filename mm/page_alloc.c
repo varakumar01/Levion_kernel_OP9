@@ -4334,7 +4334,8 @@ retry:
 	 */
 	if (!page && !drained) {
 		unreserve_highatomic_pageblock(ac, false);
-		drain_all_pages(NULL);
+		if (!task_is_critical())
+			drain_all_pages(NULL);
 		drained = true;
 		goto retry;
 	}
@@ -4764,6 +4765,11 @@ retry:
 					compact_priority, &compact_result);
 	if (page)
 		goto got_pg;
+
+	if (task_is_critical() && !(alloc_flags & ALLOC_HARDER)) {
+		alloc_flags |= ALLOC_HARDER;
+		goto retry;
+	}
 
 	/* Do not loop if specifically requested */
 	if (gfp_mask & __GFP_NORETRY)
