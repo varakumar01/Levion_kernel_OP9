@@ -769,6 +769,18 @@ int entity_eligible(struct cfs_rq *cfs_rq, struct sched_entity *se)
 	return avg >= entity_key(cfs_rq, se) * load;
 }
 
+/*
+ * cfs_rq_of() is a static inline private to this file so its scheduler
+ * hot-path callers stay inlined; kernel/sched/debug.c's print_task() needs
+ * it too (for the eligibility column) but isn't part of this translation
+ * unit, so give it this one non-inline accessor instead of exposing
+ * cfs_rq_of() itself more broadly.
+ */
+struct cfs_rq *sched_cfs_rq_of_se(struct sched_entity *se)
+{
+	return cfs_rq_of(se);
+}
+
 static u64 __update_min_vruntime(struct cfs_rq *cfs_rq, u64 vruntime)
 {
 	u64 min_vruntime = cfs_rq->min_vruntime;
