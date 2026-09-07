@@ -1079,6 +1079,24 @@ int sched_proc_update_handler(struct ctl_table *table, int write,
 	WRT_SYSCTL(sched_wakeup_granularity);
 #undef WRT_SYSCTL
 
+#ifdef CONFIG_SCHED_BORE
+	/*
+	 * proc_dointvec_minmax() above already wrote straight into
+	 * sysctl_sched_min_granularity, bypassing the tick-align
+	 * update_sysctl() applies (see this file's "sysctl_sched_min_granularity
+	 * = nsecs_per_tick * ..." under CONFIG_SCHED_BORE): an admin write to
+	 * sched_min_granularity_ns held an unaligned value until the next
+	 * update_sysctl() call, silently reverted at the next CPU hotplug.
+	 * Feed the written value back through sysctl_sched_min_base_slice and
+	 * re-run update_sysctl() so the aligned value is what's in effect and
+	 * what's read back, not just what was requested.
+	 */
+	if (table->data == &sysctl_sched_min_granularity) {
+		sysctl_sched_min_base_slice = sysctl_sched_min_granularity;
+		update_sysctl();
+	}
+#endif // CONFIG_SCHED_BORE
+
 	return 0;
 }
 #endif
