@@ -20,6 +20,8 @@
 #include "../workqueue_internal.h"
 #include "../smpboot.h"
 
+#include <linux/sched/bore.h>
+
 #include "pelt.h"
 #include "walt/walt.h"
 
@@ -7087,6 +7089,10 @@ void __init sched_init(void)
 {
 	unsigned long ptr = 0;
 	int i;
+
+#ifdef CONFIG_SCHED_BORE
+	sched_bore_init();
+#endif // CONFIG_SCHED_BORE
 
 	wait_bit_init();
 
