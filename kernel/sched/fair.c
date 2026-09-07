@@ -8651,26 +8651,24 @@ static void yield_task_fair(struct rq *rq)
 	clear_buddies(cfs_rq, se);
 #endif // CONFIG_SCHED_BORE
 
-	if (curr->policy != SCHED_BATCH) {
-		update_rq_clock(rq);
-		/*
-		 * Update run-time statistics of the 'current'.
-		 */
-		update_curr(cfs_rq);
+	update_rq_clock(rq);
+	/*
+	 * Update run-time statistics of the 'current'.
+	 */
+	update_curr(cfs_rq);
 #ifdef CONFIG_SCHED_BORE
-		restart_burst_rescale_deadline(se);
-		if (unlikely(rq->nr_running == 1))
-			return;
+	restart_burst_rescale_deadline(se);
+	if (unlikely(rq->nr_running == 1))
+		return;
 
-		clear_buddies(cfs_rq, se);
+	clear_buddies(cfs_rq, se);
 #endif // CONFIG_SCHED_BORE
-		/*
-		 * Tell update_rq_clock() that we've just updated,
-		 * so we don't do microscopic update in schedule()
-		 * and double the fastpath cost.
-		 */
-		rq_clock_skip_update(rq);
-	}
+	/*
+	 * Tell update_rq_clock() that we've just updated,
+	 * so we don't do microscopic update in schedule()
+	 * and double the fastpath cost.
+	 */
+	rq_clock_skip_update(rq);
 
 	if (sched_feat(EEVDF))
 		se->deadline += calc_delta_fair(se->slice, se);
