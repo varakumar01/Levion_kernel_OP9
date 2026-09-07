@@ -4878,8 +4878,13 @@ enqueue_entity(struct cfs_rq *cfs_rq, struct sched_entity *se, int flags)
 	 * If we're the current task, we must renormalise before calling
 	 * update_curr().
 	 */
-	if (renorm && curr)
+	if (renorm && curr) {
 		se->vruntime += cfs_rq->min_vruntime;
+		if (sched_feat(PLACE_REL_DEADLINE) && se->rel_deadline) {
+			se->deadline += se->vruntime;
+			se->rel_deadline = 0;
+		}
+	}
 
 	update_curr(cfs_rq);
 
@@ -4889,8 +4894,13 @@ enqueue_entity(struct cfs_rq *cfs_rq, struct sched_entity *se, int flags)
 	 * placed in the past could significantly boost this task to the
 	 * fairness detriment of existing tasks.
 	 */
-	if (renorm && !curr)
+	if (renorm && !curr) {
 		se->vruntime += cfs_rq->min_vruntime;
+		if (sched_feat(PLACE_REL_DEADLINE) && se->rel_deadline) {
+			se->deadline += se->vruntime;
+			se->rel_deadline = 0;
+		}
+	}
 
 	/*
 	 * When enqueuing a sched_entity, we must:
@@ -5014,8 +5024,21 @@ dequeue_entity(struct cfs_rq *cfs_rq, struct sched_entity *se, int flags)
 	 * update_min_vruntime() again, which will discount @se's position and
 	 * can move min_vruntime forward still more.
 	 */
-	if (!(flags & DEQUEUE_SLEEP))
+	if (!(flags & DEQUEUE_SLEEP)) {
+		/*
+		 * This is a plain migration, not a sleep -- capture the
+		 * deadline as an offset from the still-absolute vruntime
+		 * before it gets rebased below, so enqueue_entity() on the
+		 * new rq can restore the same gap instead of leaving
+		 * @se->deadline untouched while only @se->vruntime shifts by
+		 * (new_min_vruntime - old_min_vruntime).
+		 */
+		if (sched_feat(PLACE_REL_DEADLINE)) {
+			se->deadline -= se->vruntime;
+			se->rel_deadline = 1;
+		}
 		se->vruntime -= cfs_rq->min_vruntime;
+	}
 
 	/* return excess runtime on last dequeue */
 	return_cfs_rq_runtime(cfs_rq);
@@ -12604,6 +12627,7 @@ static void attach_task_cfs_rq(struct task_struct *p)
 
 static void switched_from_fair(struct rq *rq, struct task_struct *p)
 {
+	p->se.rel_deadline = 0;
 #ifdef CONFIG_SCHED_BORE
 	reset_task_bore(p);
 #endif // CONFIG_SCHED_BORE
