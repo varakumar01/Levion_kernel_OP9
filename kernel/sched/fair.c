@@ -4679,10 +4679,11 @@ static inline bool entity_is_long_sleeper(struct sched_entity *se)
  * halfway through their slice, as such start tasks off with half a slice
  * to ease into the competition.
  */
-static inline void set_entity_deadline(struct sched_entity *se, u64 vslice, int initial)
+static inline void set_entity_deadline(struct sched_entity *se, u64 vslice,
+					int initial, bool placing)
 {
 #ifdef CONFIG_SCHED_BORE
-	if (likely(sched_bore))
+	if (likely(sched_bore) && placing)
 		vslice >>= 1;
 	else
 #endif // CONFIG_SCHED_BORE
@@ -4692,8 +4693,17 @@ static inline void set_entity_deadline(struct sched_entity *se, u64 vslice, int 
 	se->deadline = se->vruntime + vslice;
 }
 
+/*
+ * @placing: true for a genuine wakeup or fork placement, false for the
+ * sleep-bonus-only vruntime fixup detach_task_cfs_rq() runs on a class
+ * switch/cgroup move. The BORE and WALT vslice-shrinking hunks below key
+ * off !initial to mean "wakeup", but detach_task_cfs_rq() also calls this
+ * with initial=0 -- @placing tells the two apart so the detach fixup
+ * doesn't pick up a boost meant only for an actual wakeup/fork.
+ */
 static void
-place_entity(struct cfs_rq *cfs_rq, struct sched_entity *se, int initial)
+place_entity(struct cfs_rq *cfs_rq, struct sched_entity *se, int initial,
+	     bool placing)
 {
 	u64 vslice, vruntime = avg_vruntime(cfs_rq);
 	s64 lag = 0;
@@ -4818,7 +4828,7 @@ place_entity(struct cfs_rq *cfs_rq, struct sched_entity *se, int initial)
 	 * request instead -- a smaller vslice yields an earlier virtual
 	 * deadline, which is what pick_eevdf() actually selects on.
 	 */
-	if (!initial && entity_is_task(se)) {
+	if (!initial && placing && entity_is_task(se)) {
 		struct task_struct *p = task_of(se);
 
 		if (per_task_boost(p) == TASK_BOOST_STRICT_MAX ||
@@ -4831,7 +4841,7 @@ place_entity(struct cfs_rq *cfs_rq, struct sched_entity *se, int initial)
 #endif
 
 	se->vruntime = vruntime;
-	set_entity_deadline(se, vslice, initial);
+	set_entity_deadline(se, vslice, initial, placing);
 }
 
 static void check_enqueue_throttle(struct cfs_rq *cfs_rq);
@@ -4936,7 +4946,7 @@ enqueue_entity(struct cfs_rq *cfs_rq, struct sched_entity *se, int flags)
 	account_entity_enqueue(cfs_rq, se);
 
 	if (flags & ENQUEUE_WAKEUP)
-		place_entity(cfs_rq, se, 0);
+		place_entity(cfs_rq, se, 0, true);
 	/* Entity has migrated, no longer consider this task hot */
 	if (flags & ENQUEUE_MIGRATED)
 		se->exec_start = 0;
@@ -12490,7 +12500,7 @@ static void task_fork_fair(struct task_struct *p)
 #ifdef CONFIG_SCHED_BORE
 	update_burst_score(se);
 #endif // CONFIG_SCHED_BORE
-	place_entity(cfs_rq, se, 1);
+	place_entity(cfs_rq, se, 1, true);
 
 	if (!sched_feat(EEVDF) && sysctl_sched_child_runs_first &&
 	    curr && entity_before(curr, se)) {
@@ -12627,7 +12637,7 @@ static void detach_task_cfs_rq(struct task_struct *p)
 		 * Fix up our vruntime so that the current sleep doesn't
 		 * cause 'unlimited' sleep bonus.
 		 */
-		place_entity(cfs_rq, se, 0);
+		place_entity(cfs_rq, se, 0, false);
 		se->vruntime -= cfs_rq->min_vruntime;
 	}
 
