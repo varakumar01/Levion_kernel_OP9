@@ -2529,6 +2529,8 @@ extern struct sched_entity *__pick_last_entity(struct cfs_rq *cfs_rq);
 
 extern u64 avg_vruntime(struct cfs_rq *cfs_rq);
 extern int entity_eligible(struct cfs_rq *cfs_rq, struct sched_entity *se);
+extern struct task_struct *sched_task_of_se(struct sched_entity *se);
+extern struct cfs_rq *sched_cfs_rq_of_se(struct sched_entity *se);
 
 #ifdef	CONFIG_SCHED_DEBUG
 extern bool sched_debug_enabled;
