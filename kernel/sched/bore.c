@@ -332,9 +332,20 @@ void sched_clone_bore(struct task_struct *p,
 	 * sched_fork()) ran before the inherited penalty above was known, so
 	 * se->burst_score/load.weight are still the pre-inheritance values.
 	 * Recompute now the penalty is set, before wake_up_new_task() makes
-	 * this child runnable.
+	 * this child runnable. update_burst_score() can call
+	 * reweight_task_by_prio() -> reweight_entity(), which touches
+	 * cfs_rq->avg -- take the rq lock around it like every other caller
+	 * (task_fork_fair() under rq_lock(), reset_task_weights_bore() via
+	 * task_rq_lock()) instead of mutating a live cfs_rq unlocked.
 	 */
-	update_burst_score(se);
+	{
+		struct rq_flags rf;
+		struct rq *rq = task_rq_lock(p, &rf);
+
+		update_rq_clock(rq);
+		update_burst_score(se);
+		task_rq_unlock(rq, p, &rf);
+	}
 }
 
 void reset_task_bore(struct task_struct *p) {
