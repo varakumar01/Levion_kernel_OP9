@@ -22,22 +22,6 @@ static int __maybe_unused three          = 3;
 static int __maybe_unused sixty_four     = 64;
 static int __maybe_unused maxval_12_bits = 4095;
 
-/*
- * task_of()/cfs_rq_of() are CONFIG_FAIR_GROUP_SCHED-off static inlines
- * private to kernel/sched/fair.c. This tree doesn't share them via
- * sched.h, so bore.c carries its own trivial copies rather than
- * exposing fair.c's internals more broadly than this port needs.
- */
-static inline struct task_struct *task_of(struct sched_entity *se)
-{
-	return container_of(se, struct task_struct, se);
-}
-
-static inline struct cfs_rq *cfs_rq_of(struct sched_entity *se)
-{
-	return &task_rq(task_of(se))->cfs;
-}
-
 #define MAX_BURST_PENALTY (39U <<2)
 
 static inline u32 log2plus1_u64_u32f8(u64 v) {
@@ -67,7 +51,7 @@ static void reweight_task_by_prio(struct task_struct *p, int prio) {
 	struct sched_entity *se = &p->se;
 	unsigned long weight = scale_load(sched_prio_to_weight[prio]);
 
-	reweight_entity(cfs_rq_of(se), se, weight, weight);
+	reweight_entity(sched_cfs_rq_of_se(se), se, weight, weight);
 	se->load.inv_weight = sched_prio_to_wmult[prio];
 }
 
@@ -80,7 +64,7 @@ static inline u8 effective_prio(struct task_struct *p) {
 
 void update_burst_score(struct sched_entity *se) {
 	if (!entity_is_task(se)) return;
-	struct task_struct *p = task_of(se);
+	struct task_struct *p = sched_task_of_se(se);
 	u8 prev_prio = effective_prio(p);
 
 	u8 burst_score = 0;
@@ -121,7 +105,7 @@ inline void restart_burst(struct sched_entity *se) {
 
 void restart_burst_rescale_deadline(struct sched_entity *se) {
 	s64 vscaled, wremain, vremain = se->deadline - se->vruntime;
-	struct task_struct *p = task_of(se);
+	struct task_struct *p = sched_task_of_se(se);
 	u8 prev_prio = effective_prio(p);
 	restart_burst(se);
 	u8 new_prio = effective_prio(p);

@@ -755,6 +755,25 @@ int entity_eligible(struct cfs_rq *cfs_rq, struct sched_entity *se)
 	return avg >= entity_key(cfs_rq, se) * load;
 }
 
+/*
+ * task_of()/cfs_rq_of() are static inlines private to this file so their
+ * scheduler hot-path callers stay inlined. kernel/sched/bore.c and
+ * kernel/sched/debug.c both need them too but aren't part of this
+ * translation unit, so give them these two non-inline accessors instead of
+ * exposing task_of()/cfs_rq_of() themselves more broadly -- callers here
+ * get whichever CONFIG_FAIR_GROUP_SCHED branch is actually compiled, same
+ * as every in-file caller.
+ */
+struct task_struct *sched_task_of_se(struct sched_entity *se)
+{
+	return task_of(se);
+}
+
+struct cfs_rq *sched_cfs_rq_of_se(struct sched_entity *se)
+{
+	return cfs_rq_of(se);
+}
+
 static u64 __update_min_vruntime(struct cfs_rq *cfs_rq, u64 vruntime)
 {
 	u64 min_vruntime = cfs_rq->min_vruntime;
