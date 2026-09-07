@@ -2251,6 +2251,11 @@ static __latent_entropy struct task_struct *copy_process(
 	p->start_time = ktime_get_ns();
 	p->real_start_time = ktime_get_boottime_ns();
 
+#ifdef CONFIG_SCHED_BORE
+	if (likely(p->pid))
+		sched_clone_bore(p, current, clone_flags, p->start_time);
+#endif // CONFIG_SCHED_BORE
+
 	/*
 	 * Make it visible to the rest of the system, but dont wake it up yet.
 	 * Need tasklist lock for parent etc handling!
@@ -2347,10 +2352,6 @@ static __latent_entropy struct task_struct *copy_process(
 		fd_install(pidfd, pidfile);
 
 	proc_fork_connector(p);
-#ifdef CONFIG_SCHED_BORE
-	if (likely(p->pid))
-		sched_clone_bore(p, current, clone_flags, p->start_time);
-#endif // CONFIG_SCHED_BORE
 	cgroup_post_fork(p);
 	cgroup_threadgroup_change_end(current);
 	perf_event_fork(p);
