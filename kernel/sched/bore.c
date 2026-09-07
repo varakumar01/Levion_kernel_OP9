@@ -55,7 +55,7 @@ static void reweight_task_by_prio(struct task_struct *p, int prio) {
 	se->load.inv_weight = sched_prio_to_wmult[prio];
 }
 
-static inline u8 effective_prio(struct task_struct *p) {
+u8 sched_bore_effective_prio(struct task_struct *p) {
 	u8 prio = p->static_prio - MAX_RT_PRIO;
 	if (likely(sched_bore))
 		prio += p->se.burst_score;
@@ -65,14 +65,14 @@ static inline u8 effective_prio(struct task_struct *p) {
 void update_burst_score(struct sched_entity *se) {
 	if (!entity_is_task(se)) return;
 	struct task_struct *p = sched_task_of_se(se);
-	u8 prev_prio = effective_prio(p);
+	u8 prev_prio = sched_bore_effective_prio(p);
 
 	u8 burst_score = 0;
 	if (!((p->flags & PF_KTHREAD) && likely(sched_burst_exclude_kthreads)))
 		burst_score = se->burst_penalty >> 2;
 	se->burst_score = burst_score;
 
-	u8 new_prio = effective_prio(p);
+	u8 new_prio = sched_bore_effective_prio(p);
 	if (new_prio != prev_prio)
 		reweight_task_by_prio(p, new_prio);
 }
@@ -106,9 +106,9 @@ inline void restart_burst(struct sched_entity *se) {
 void restart_burst_rescale_deadline(struct sched_entity *se) {
 	s64 vscaled, wremain, vremain = se->deadline - se->vruntime;
 	struct task_struct *p = sched_task_of_se(se);
-	u8 prev_prio = effective_prio(p);
+	u8 prev_prio = sched_bore_effective_prio(p);
 	restart_burst(se);
-	u8 new_prio = effective_prio(p);
+	u8 new_prio = sched_bore_effective_prio(p);
 	if (prev_prio > new_prio) {
 		wremain = __unscale_slice(abs(vremain), prev_prio);
 		vscaled = __scale_slice(wremain, new_prio);
@@ -131,7 +131,7 @@ static void reset_task_weights_bore(void) {
 		if (!task_is_bore_eligible(task)) continue;
 		rq = task_rq_lock(task, &rf);
 		update_rq_clock(rq);
-		reweight_task_by_prio(task, effective_prio(task));
+		reweight_task_by_prio(task, sched_bore_effective_prio(task));
 		task_rq_unlock(rq, task, &rf);
 	}
 	read_unlock_irq(&tasklist_lock);

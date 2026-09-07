@@ -789,7 +789,11 @@ static void set_load_weight(struct task_struct *p, bool update_load)
 	 * weight
 	 */
 	if (update_load && p->sched_class == &fair_sched_class) {
+#ifdef CONFIG_SCHED_BORE
+		reweight_task(p, sched_bore_effective_prio(p));
+#else
 		reweight_task(p, prio);
+#endif
 	} else {
 		load->weight = scale_load(sched_prio_to_weight[prio]);
 		load->inv_weight = sched_prio_to_wmult[prio];
