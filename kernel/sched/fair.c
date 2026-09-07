@@ -3682,6 +3682,9 @@ static void update_cfs_group(struct sched_entity *se)
 #else
 	shares   = calc_group_shares(gcfs_rq);
 	runnable = calc_group_runnable(gcfs_rq, shares);
+
+	if (likely(se->load.weight == shares && se->runnable_weight == runnable))
+		return;
 #endif
 
 	reweight_entity(cfs_rq_of(se), se, shares, runnable);
