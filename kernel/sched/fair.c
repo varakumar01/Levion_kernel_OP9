@@ -8426,6 +8426,7 @@ static void check_preempt_wakeup(struct rq *rq, struct task_struct *p, int wake_
 		return;
 
 	find_matching_se(&se, &pse);
+	cfs_rq = cfs_rq_of(se);
 	update_curr(cfs_rq);
 	BUG_ON(!pse);
 	if (sched_feat(EEVDF)) {
