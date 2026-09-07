@@ -71,6 +71,16 @@ enum sched_tunable_scaling sysctl_sched_tunable_scaling = SCHED_TUNABLESCALING_N
 unsigned int sysctl_sched_min_granularity			= 1000000ULL;
 static unsigned int normalized_sysctl_sched_min_granularity	= 1000000ULL;
 
+#ifdef CONFIG_SCHED_BORE
+/*
+ * BORE: tick-aligned floor for sysctl_sched_min_granularity, so a task's
+ * EEVDF slice can never be shorter than one scheduler tick -- see
+ * update_sysctl() below.
+ */
+static const unsigned int nsecs_per_tick        = 1000000000ULL / HZ;
+unsigned int sysctl_sched_min_base_slice        = CONFIG_MIN_BASE_SLICE_NS;
+#endif // CONFIG_SCHED_BORE
+
 /*
  * This value is kept at sysctl_sched_latency/sysctl_sched_min_granularity
  */
@@ -209,6 +219,10 @@ static void update_sysctl(void)
 	SET_SYSCTL(sched_latency);
 	SET_SYSCTL(sched_wakeup_granularity);
 #undef SET_SYSCTL
+#ifdef CONFIG_SCHED_BORE
+	sysctl_sched_min_granularity = nsecs_per_tick *
+		max(1U, DIV_ROUND_UP(sysctl_sched_min_base_slice, nsecs_per_tick));
+#endif // CONFIG_SCHED_BORE
 }
 
 void sched_init_granularity(void)
