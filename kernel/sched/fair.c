@@ -4775,28 +4775,6 @@ place_entity(struct cfs_rq *cfs_rq, struct sched_entity *se, int initial)
 				thresh >>= 1;
 
 			vruntime -= thresh;
-#ifdef CONFIG_SCHED_WALT
-			if (entity_is_task(se)) {
-				if (per_task_boost(task_of(se)) == TASK_BOOST_STRICT_MAX) {
-					vruntime -= thresh;
-					vruntime -= sysctl_sched_latency;
-					se->vruntime = vruntime;
-					set_entity_deadline(se, vslice, initial);
-					return;
-				} else if (walt_binder_low_latency_task(task_of(se))) {
-					vruntime -= sysctl_sched_latency;
-					se->vruntime = vruntime;
-					set_entity_deadline(se, vslice, initial);
-					return;
-				} else if (task_rtg_high_prio(task_of(se)) ||
-						walt_procfs_low_latency_task(task_of(se))) {
-					vruntime -= thresh;
-					se->vruntime = vruntime;
-					set_entity_deadline(se, vslice, initial);
-					return;
-				}
-			}
-#endif
 		}
 
 		/*
@@ -4809,6 +4787,27 @@ place_entity(struct cfs_rq *cfs_rq, struct sched_entity *se, int initial)
 		if (!entity_is_long_sleeper(se))
 			vruntime = max_vruntime(se->vruntime, vruntime);
 	}
+
+#ifdef CONFIG_SCHED_WALT
+	/*
+	 * WALT's low-latency classes need to jump the queue. Under CFS that
+	 * was a vruntime discount against sysctl_sched_latency; under EEVDF
+	 * that fights PLACE_LAG and breaks the eligibility invariant
+	 * avg_vruntime() depends on. Express the same intent as a shorter
+	 * request instead -- a smaller vslice yields an earlier virtual
+	 * deadline, which is what pick_eevdf() actually selects on.
+	 */
+	if (!initial && entity_is_task(se)) {
+		struct task_struct *p = task_of(se);
+
+		if (per_task_boost(p) == TASK_BOOST_STRICT_MAX ||
+		    walt_binder_low_latency_task(p))
+			vslice >>= 2;
+		else if (task_rtg_high_prio(p) ||
+			 walt_procfs_low_latency_task(p))
+			vslice >>= 1;
+	}
+#endif
 
 	se->vruntime = vruntime;
 	set_entity_deadline(se, vslice, initial);
