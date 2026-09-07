@@ -19,6 +19,7 @@ extern uint __read_mostly sched_burst_cache_lifetime;
 
 extern void update_burst_score(struct sched_entity *se);
 extern void update_burst_penalty(struct sched_entity *se);
+extern u8 sched_bore_effective_prio(struct task_struct *p);
 
 extern void restart_burst(struct sched_entity *se);
 extern void restart_burst_rescale_deadline(struct sched_entity *se);
