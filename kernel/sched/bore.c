@@ -326,6 +326,15 @@ void sched_clone_bore(struct task_struct *p,
 		max(se->prev_burst_penalty, penalty);
 	se->child_burst.timestamp = 0;
 	se->group_burst.timestamp = 0;
+
+	/*
+	 * task_fork_fair()'s update_burst_score() (called earlier, from
+	 * sched_fork()) ran before the inherited penalty above was known, so
+	 * se->burst_score/load.weight are still the pre-inheritance values.
+	 * Recompute now the penalty is set, before wake_up_new_task() makes
+	 * this child runnable.
+	 */
+	update_burst_score(se);
 }
 
 void reset_task_bore(struct task_struct *p) {
