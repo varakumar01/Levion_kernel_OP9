@@ -16,6 +16,13 @@ SCHED_FEAT(PLACE_LAG, true)
 SCHED_FEAT(PLACE_DEADLINE_INITIAL, true)
 
 /*
+ * Preserve relative virtual deadline across a plain CPU migration -- see
+ * the dequeue_entity()/enqueue_entity() min_vruntime-renorm hunks that read
+ * this feature.
+ */
+SCHED_FEAT(PLACE_REL_DEADLINE, true)
+
+/*
  * Prefer to schedule the task we woke last (assuming it failed
  * wakeup-preemption), since its likely going to consume data we
  * touched, increases cache locality.
