@@ -4792,6 +4792,23 @@ place_entity(struct cfs_rq *cfs_rq, struct sched_entity *se, int initial,
 		vruntime -= lag;
 	}
 
+	/*
+	 * dequeue_entity()'s !DEQUEUE_SLEEP path (a migration, not a real
+	 * sleep) captured se->deadline as an offset from se->vruntime before
+	 * the entity left its old cfs_rq, in se->rel_deadline. Restore the
+	 * same runway relative to the fresh, lag-adjusted vruntime just
+	 * computed above and stop here -- sleeper credit, the WALT boosts
+	 * below, and a brand new deadline all assume a genuine wakeup or
+	 * fork, not "this task already had some slice left and just changed
+	 * CPUs or cfs_rq's".
+	 */
+	if (sched_feat(PLACE_REL_DEADLINE) && se->rel_deadline) {
+		se->vruntime = vruntime;
+		se->deadline += se->vruntime;
+		se->rel_deadline = 0;
+		return;
+	}
+
 	if (sched_feat(FAIR_SLEEPERS)) {
 
 		/* sleeps up to a single latency don't count. */
@@ -4901,36 +4918,18 @@ static inline bool cfs_bandwidth_used(void);
 static void
 enqueue_entity(struct cfs_rq *cfs_rq, struct sched_entity *se, int flags)
 {
-	bool renorm = !(flags & ENQUEUE_WAKEUP) || (flags & ENQUEUE_MIGRATED);
 	bool curr = cfs_rq->curr == se;
 
 	/*
-	 * If we're the current task, we must renormalise before calling
-	 * update_curr().
+	 * If we're the current task, we must place (which now doubles as
+	 * "renormalise", since place_entity() starts from avg_vruntime(),
+	 * not the old, now-dropped se->vruntime += cfs_rq->min_vruntime)
+	 * before calling update_curr().
 	 */
-	if (renorm && curr) {
-		se->vruntime += cfs_rq->min_vruntime;
-		if (sched_feat(PLACE_REL_DEADLINE) && se->rel_deadline) {
-			se->deadline += se->vruntime;
-			se->rel_deadline = 0;
-		}
-	}
+	if (curr)
+		place_entity(cfs_rq, se, 0, true);
 
 	update_curr(cfs_rq);
-
-	/*
-	 * Otherwise, renormalise after, such that we're placed at the current
-	 * moment in time, instead of some random moment in the past. Being
-	 * placed in the past could significantly boost this task to the
-	 * fairness detriment of existing tasks.
-	 */
-	if (renorm && !curr) {
-		se->vruntime += cfs_rq->min_vruntime;
-		if (sched_feat(PLACE_REL_DEADLINE) && se->rel_deadline) {
-			se->deadline += se->vruntime;
-			se->rel_deadline = 0;
-		}
-	}
 
 	/*
 	 * When enqueuing a sched_entity, we must:
@@ -4945,7 +4944,20 @@ enqueue_entity(struct cfs_rq *cfs_rq, struct sched_entity *se, int flags)
 	enqueue_runnable_load_avg(cfs_rq, se);
 	account_entity_enqueue(cfs_rq, se);
 
-	if (flags & ENQUEUE_WAKEUP)
+	/*
+	 * Otherwise, place now that the entity has been re-weighted, such
+	 * that we're placed at the current moment in time, instead of some
+	 * random moment in the past. Being placed in the past could
+	 * significantly boost this task to the fairness detriment of
+	 * existing tasks. Unconditional on ENQUEUE_WAKEUP -- a plain
+	 * migration (ENQUEUE_MIGRATED, no ENQUEUE_WAKEUP) needs this exact
+	 * same avg_vruntime()-and-lag placement too, not the old min_vruntime
+	 * rebase this used to fall back to; entity_eligible() has compared
+	 * against avg_vruntime() since 1ddb983b3c68, and a migrated task's
+	 * old min_vruntime-relative position has no defined relationship to
+	 * the destination cfs_rq's avg_vruntime.
+	 */
+	if (!curr)
 		place_entity(cfs_rq, se, 0, true);
 	/* Entity has migrated, no longer consider this task hot */
 	if (flags & ENQUEUE_MIGRATED)
@@ -5040,35 +5052,32 @@ dequeue_entity(struct cfs_rq *cfs_rq, struct sched_entity *se, int flags)
 
 	clear_buddies(cfs_rq, se);
 
-	if (flags & DEQUEUE_SLEEP)
-		update_entity_lag(cfs_rq, se);
+	/*
+	 * Capture lag on every dequeue, not just DEQUEUE_SLEEP -- a plain
+	 * migration needs a fresh se->vlag too, so the place_entity() call
+	 * enqueue_entity() now makes unconditionally (on the destination
+	 * cfs_rq, against *its* avg_vruntime()) has something real to place
+	 * against instead of a stale or never-set vlag from this task's last
+	 * genuine sleep.
+	 */
+	update_entity_lag(cfs_rq, se);
+	if (sched_feat(PLACE_REL_DEADLINE) && !(flags & DEQUEUE_SLEEP)) {
+		/*
+		 * This is a plain migration, not a sleep -- capture the
+		 * deadline as an offset from the still-absolute vruntime so
+		 * place_entity() on the new rq can restore the same runway
+		 * relative to the fresh vruntime it computes there, instead
+		 * of leaving @se->deadline an absolute value that made sense
+		 * against the old rq's timeline but not the new one's.
+		 */
+		se->deadline -= se->vruntime;
+		se->rel_deadline = 1;
+	}
 
 	if (se != cfs_rq->curr)
 		__dequeue_entity(cfs_rq, se);
 	se->on_rq = 0;
 	account_entity_dequeue(cfs_rq, se);
-
-	/*
-	 * Normalize after update_curr(); which will also have moved
-	 * min_vruntime if @se is the one holding it back. But before doing
-	 * update_min_vruntime() again, which will discount @se's position and
-	 * can move min_vruntime forward still more.
-	 */
-	if (!(flags & DEQUEUE_SLEEP)) {
-		/*
-		 * This is a plain migration, not a sleep -- capture the
-		 * deadline as an offset from the still-absolute vruntime
-		 * before it gets rebased below, so enqueue_entity() on the
-		 * new rq can restore the same gap instead of leaving
-		 * @se->deadline untouched while only @se->vruntime shifts by
-		 * (new_min_vruntime - old_min_vruntime).
-		 */
-		if (sched_feat(PLACE_REL_DEADLINE)) {
-			se->deadline -= se->vruntime;
-			se->rel_deadline = 1;
-		}
-		se->vruntime -= cfs_rq->min_vruntime;
-	}
 
 	/* return excess runtime on last dequeue */
 	return_cfs_rq_runtime(cfs_rq);
