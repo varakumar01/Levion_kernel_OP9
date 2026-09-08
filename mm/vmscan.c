@@ -263,11 +263,6 @@ static void unregister_memcg_shrinker(struct shrinker *shrinker)
 
 static bool global_reclaim(struct scan_control *sc)
 {
-	return !sc->target_mem_cgroup;
-}
-
-static bool global_reclaim(struct scan_control *sc)
-{
 	return !sc->target_mem_cgroup || mem_cgroup_is_root(sc->target_mem_cgroup);
 }
 
