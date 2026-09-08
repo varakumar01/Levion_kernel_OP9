@@ -14,6 +14,7 @@
 #include <linux/percpu.h>
 #include <linux/list.h>
 #include <linux/hrtimer.h>
+#include <linux/sched.h>
 
 #define CPUIDLE_STATE_MAX	10
 #define CPUIDLE_NAME_LEN	16
@@ -279,17 +280,18 @@ static inline int cpuidle_register_governor(struct cpuidle_governor *gov)
 ({									\
 	int __ret = 0;							\
 									\
-	if (!idx) {							\
+	if (need_resched()) {						\
+		__ret = -1;						\
+	} else if (!idx) {						\
 		cpu_do_idle();						\
-		return idx;						\
-	}								\
-									\
-	if (!is_retention)						\
-		__ret =  cpu_pm_enter();				\
-	if (!__ret) {							\
-		__ret = low_level_idle_enter(state);			\
+	} else {							\
 		if (!is_retention)					\
-			cpu_pm_exit();					\
+			__ret = cpu_pm_enter();				\
+		if (!__ret) {						\
+			__ret = low_level_idle_enter(state);		\
+			if (!is_retention)				\
+				cpu_pm_exit();				\
+		}							\
 	}								\
 									\
 	__ret ? -1 : idx;						\
