@@ -4674,11 +4674,41 @@ static unsigned long get_nr_to_reclaim(struct scan_control *sc)
 	return max(sc->nr_to_reclaim, compact_gap(sc->order));
 }
 
+static bool should_abort_scan(struct lruvec *lruvec, struct scan_control *sc)
+{
+	int i;
+
+	if (sc->nr_reclaimed >= get_nr_to_reclaim(sc))
+		return true;
+
+	/* check the order to exclude compaction-induced reclaim */
+	if (!current_is_kswapd() || sc->order)
+		return false;
+
+	for (i = 0; i <= sc->reclaim_idx; i++) {
+		unsigned long wmark;
+		struct zone *zone = lruvec_pgdat(lruvec)->node_zones + i;
+
+		if (!managed_zone(zone))
+			continue;
+
+		/*
+		 * Abort the scan once the target number of order-zero pages is
+		 * met. The MIN_LRU_BATCH << 2 margin lets kswapd sleep straight
+		 * away instead of being rewoken right at the watermark.
+		 */
+		wmark = high_wmark_pages(zone) + (MIN_LRU_BATCH << 2);
+		if (!zone_watermark_ok_safe(zone, 0, wmark, sc->reclaim_idx))
+			return false;
+	}
+
+	return true;
+}
+
 static bool try_to_shrink_lruvec(struct lruvec *lruvec, struct scan_control *sc)
 {
 	long nr_to_scan;
 	unsigned long scanned = 0;
-	unsigned long nr_to_reclaim = get_nr_to_reclaim(sc);
 	int swappiness = get_swappiness(lruvec, sc);
 
 	/* clean file pages are more likely to exist */
@@ -4700,7 +4730,7 @@ static bool try_to_shrink_lruvec(struct lruvec *lruvec, struct scan_control *sc)
 		if (scanned >= nr_to_scan)
 			break;
 
-		if (sc->nr_reclaimed >= nr_to_reclaim)
+		if (should_abort_scan(lruvec, sc))
 			break;
 
 		cond_resched();
@@ -4759,14 +4789,14 @@ static void shrink_many(struct pglist_data *pgdat, struct scan_control *sc)
 	int bin;
 	int first_bin;
 	struct lruvec *lruvec;
-	struct lru_gen_page *lrugen;
+	struct lru_gen_page *lrugen = NULL;
 	struct mem_cgroup *memcg;
 	const struct hlist_nulls_node *pos;
-	unsigned long nr_to_reclaim = get_nr_to_reclaim(sc);
 
 	bin = first_bin = prandom_u32_max(MEMCG_NR_BINS);
 restart:
 	op = 0;
+	lruvec = NULL;
 	memcg = NULL;
 	gen = get_memcg_gen(READ_ONCE(pgdat->memcg_lru.seq));
 
@@ -4795,7 +4825,7 @@ restart:
 
 		rcu_read_lock();
 
-		if (sc->nr_reclaimed >= nr_to_reclaim)
+		if (should_abort_scan(lruvec, sc))
 			break;
 	}
 
@@ -4804,10 +4834,12 @@ restart:
 	if (op)
 		lru_gen_rotate_memcg(lruvec, op);
 
-	mem_cgroup_put(memcg);
-
-	if (sc->nr_reclaimed >= nr_to_reclaim)
+	if (lruvec && should_abort_scan(lruvec, sc)) {
+		mem_cgroup_put(memcg);
 		return;
+	}
+
+	mem_cgroup_put(memcg);
 
 	/* restart if raced with lru_gen_rotate_memcg() */
 	if (gen != get_nulls_value(pos))
