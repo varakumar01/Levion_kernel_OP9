@@ -14,7 +14,6 @@ SCHED_FEAT(GENTLE_FAIR_SLEEPERS, true)
  */
 SCHED_FEAT(PLACE_LAG, true)
 SCHED_FEAT(PLACE_DEADLINE_INITIAL, true)
-SCHED_FEAT(RUN_TO_PARITY, true)
 
 /*
  * Preserve relative virtual deadline across a plain CPU migration -- see
