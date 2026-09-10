@@ -1027,6 +1027,17 @@ static int __wlan_hdd_cfg80211_vendor_scan(struct wiphy *wiphy,
 	request = qdf_mem_malloc(len);
 	if (!request)
 		goto error;
+	/*
+	 * channels[] is bounds-instrumented against n_channels (flexible
+	 * array member), so every use of request->channels[...] -- including
+	 * the address-of below -- is checked against request->n_channels.
+	 * qdf_mem_malloc does not zero the buffer and the field was only
+	 * assigned after the fill loop, so the checks ran against
+	 * uninitialized heap garbage and could trip the UBSAN trap
+	 * (panic + reboot). Publish the allocation size before the first
+	 * use; it is shrunk to the filled count after the loop.
+	 */
+	request->n_channels = n_channels;
 	if (n_ssid)
 		request->ssids = (void *)&request->channels[n_channels];
 	request->n_ssids = n_ssid;
@@ -1073,7 +1084,11 @@ static int __wlan_hdd_cfg80211_vendor_scan(struct wiphy *wiphy,
 
 	if (!count)
 		goto error;
-
+	/*
+	 * Shrink to the number of entries actually filled: disabled channels
+	 * are skipped, so count <= n_channels. Downstream code reads this
+	 * field as the number of valid channels.
+	 */
 	request->n_channels = count;
 	count = 0;
 	if (tb[QCA_WLAN_VENDOR_ATTR_SCAN_SSIDS]) {
