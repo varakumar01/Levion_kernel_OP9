@@ -32,6 +32,7 @@
 #include <wlan_vdev_mlme_main.h>
 #include <wmi_unified_vdev_api.h>
 #include <target_if_psoc_wake_lock.h>
+#include <wma_api.h>
 
 static inline
 void target_if_vdev_mgr_handle_recovery(struct wlan_objmgr_psoc *psoc,
@@ -281,6 +282,9 @@ static int target_if_vdev_mgr_start_response_handler(ol_scn_t scn,
 	}
 
 	vdev_id = vdev_start_resp.vdev_id;
+	if (wma_injection_vdev_start_complete(&vdev_start_resp))
+		return 0;
+
 	vdev_rsp = rx_ops->psoc_get_vdev_response_timer_info(psoc, vdev_id);
 	if (!vdev_rsp) {
 		mlme_err("vdev response timer is null VDEV_%d PSOC_%d",
@@ -348,6 +352,10 @@ static int target_if_vdev_mgr_stop_response_handler(ol_scn_t scn,
 		return -EINVAL;
 	}
 
+	/* Injection helpers are firmware-only vdevs with no objmgr vdev. */
+	if (wma_injection_vdev_stop_complete(vdev_id))
+		return 0;
+
 	vdev_rsp = rx_ops->psoc_get_vdev_response_timer_info(psoc, vdev_id);
 	if (!vdev_rsp) {
 		mlme_err("vdev response timer is null VDEV_%d PSOC_%d",
@@ -409,6 +417,10 @@ static int target_if_vdev_mgr_delete_response_handler(ol_scn_t scn,
 		mlme_err("WMI extract failed");
 		return -EINVAL;
 	}
+
+	/* Injection helpers are firmware-only vdevs with no response timer. */
+	if (wma_injection_vdev_delete_complete(vdev_del_resp.vdev_id))
+		return 0;
 
 	vdev_rsp = rx_ops->psoc_get_vdev_response_timer_info(psoc,
 							 vdev_del_resp.vdev_id);

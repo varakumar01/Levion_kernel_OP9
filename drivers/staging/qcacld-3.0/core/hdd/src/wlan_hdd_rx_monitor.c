@@ -99,6 +99,7 @@ int hdd_enable_monitor_mode(struct net_device *dev)
 {
 	void *soc = cds_get_context(QDF_MODULE_ID_SOC);
 	uint8_t vdev_id;
+	int ret;
 
 	hdd_enter_dev(dev);
 
@@ -106,13 +107,22 @@ int hdd_enable_monitor_mode(struct net_device *dev)
 	if (vdev_id == (uint8_t)-EINVAL)
 		return -EINVAL;
 
-	return cdp_set_monitor_mode(soc, vdev_id, false);
+	ret = cdp_set_monitor_mode(soc, vdev_id, false);
+	if (!ret)
+		wma_injection_resume();
+
+	return ret;
 }
 
 int hdd_disable_monitor_mode(void)
 {
 	void *soc = cds_get_context(QDF_MODULE_ID_SOC);
+	int ret;
 
 	wma_injection_pre_stop_cleanup();
-	return cdp_reset_monitor_mode(soc, OL_TXRX_PDEV_ID, false);
+	ret = cdp_reset_monitor_mode(soc, OL_TXRX_PDEV_ID, false);
+	if (ret)
+		wma_injection_resume();
+
+	return ret;
 }
