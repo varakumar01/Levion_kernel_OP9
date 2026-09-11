@@ -42,6 +42,10 @@
 #include "dp_hist.h"
 #endif
 
+#ifdef FEATURE_FRAME_INJECTION_SUPPORT
+#include <wma_api.h>
+#endif
+
 #ifdef REO_QDESC_HISTORY
 #define REO_QDESC_HISTORY_SIZE 512
 uint64_t reo_qdesc_history_idx;
@@ -2210,6 +2214,11 @@ dp_rx_peer_map_handler(struct dp_soc *soc, uint16_t peer_id,
 
 	dp_rx_reset_roaming_peer(soc, vdev_id, peer_mac_addr);
 
+#ifdef FEATURE_FRAME_INJECTION_SUPPORT
+	if (!is_wds && QDF_IS_STATUS_SUCCESS(err))
+		wma_injection_peer_map_complete(vdev_id, peer_mac_addr, peer_id);
+#endif
+
 	return err;
 }
 
@@ -2240,6 +2249,10 @@ dp_rx_peer_unmap_handler(struct dp_soc *soc, uint16_t peer_id,
 	 * in peer_id_to_obj_map will be NULL.
 	 */
 	if (!peer) {
+#ifdef FEATURE_FRAME_INJECTION_SUPPORT
+		if (wma_injection_peer_unmap_complete(vdev_id, peer_id))
+			return;
+#endif
 		dp_err("Received unmap event for invalid peer_id %u",
 		       peer_id);
 		return;
@@ -2292,6 +2305,10 @@ dp_rx_peer_unmap_handler(struct dp_soc *soc, uint16_t peer_id,
 	 * If there are no more references, delete the peer object.
 	 */
 	dp_peer_unref_delete(peer, DP_MOD_ID_CONFIG);
+
+#ifdef FEATURE_FRAME_INJECTION_SUPPORT
+	wma_injection_peer_unmap_complete(vdev_id, peer_id);
+#endif
 }
 
 void
