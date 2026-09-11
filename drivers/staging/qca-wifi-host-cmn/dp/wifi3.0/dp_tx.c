@@ -2986,6 +2986,7 @@ dp_tx_send_exception(struct cdp_soc_t *soc_hdl, uint8_t vdev_id,
 	struct dp_soc *soc = cdp_soc_t_to_dp_soc(soc_hdl);
 	qdf_ether_header_t *eh = NULL;
 	struct dp_tx_msdu_info_s msdu_info;
+	struct dp_tx_seg_info_s raw_seg_info = {0};
 	struct dp_vdev *vdev = dp_vdev_get_ref_by_id(soc, vdev_id,
 						     DP_MOD_ID_TX_EXCEPTION);
 
@@ -3019,6 +3020,19 @@ dp_tx_send_exception(struct cdp_soc_t *soc_hdl, uint8_t vdev_id,
 		QDF_TRACE(QDF_MODULE_ID_DP, QDF_TRACE_LEVEL_ERROR,
 			"Mesh mode is not supported in exception path");
 		goto fail;
+	}
+
+	if (qdf_unlikely(tx_exc_metadata->is_raw_injection)) {
+		if (tx_exc_metadata->tx_encap_type != htt_cmn_pkt_type_raw)
+			goto fail;
+
+		msdu_info.tid = HTT_TX_EXT_TID_DEFAULT;
+		nbuf = dp_tx_prepare_raw(vdev, nbuf, &raw_seg_info,
+					 &msdu_info);
+		if (!nbuf)
+			goto fail;
+
+		goto send_multiple;
 	}
 
 	/*
@@ -3099,6 +3113,8 @@ dp_tx_send_exception(struct cdp_soc_t *soc_hdl, uint8_t vdev_id,
 
 send_multiple:
 	nbuf = dp_tx_send_msdu_multiple(vdev, nbuf, &msdu_info);
+	if (qdf_unlikely(nbuf && msdu_info.frm_type == dp_tx_frm_raw))
+		dp_tx_raw_prepare_unset(soc, nbuf);
 
 fail:
 	if (vdev)
