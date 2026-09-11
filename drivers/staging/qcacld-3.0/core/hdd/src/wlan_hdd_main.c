@@ -8731,10 +8731,23 @@ int wlan_hdd_set_mon_chan(struct hdd_adapter *adapter, qdf_freq_t freq,
 	}
 	adapter->monitor_mode_vdev_up_in_progress = true;
 
+	/* WEXT channel changes are used by legacy monitor-mode hoppers */
+	status = wma_injection_channel_change_begin(adapter->vdev_id, freq);
+	if (status == QDF_STATUS_E_ALREADY) {
+		adapter->monitor_mode_vdev_up_in_progress = false;
+		return 0;
+	}
+	if (QDF_IS_STATUS_ERROR(status)) {
+		hdd_warn("failed to quiesce monitor injection: %d", status);
+		adapter->monitor_mode_vdev_up_in_progress = false;
+		return qdf_status_to_os_return(status);
+	}
+
 	status = sme_roam_channel_change_req(hdd_ctx->mac_handle,
 					     bssid, &roam_profile.ch_params,
 					     &roam_profile);
 	if (status) {
+		wma_injection_channel_change_end(false);
 		hdd_err("Status: %d Failed to set sme_roam Channel for monitor mode",
 			status);
 		adapter->monitor_mode_vdev_up_in_progress = false;
@@ -8763,7 +8776,10 @@ int wlan_hdd_set_mon_chan(struct hdd_adapter *adapter, qdf_freq_t freq,
 			hdd_err_rl("Failed monitor mode vdev up(status-%d)",
 				  status);
 
+		wma_injection_channel_change_end(false);
 		adapter->monitor_mode_vdev_up_in_progress = false;
+	} else {
+		wma_injection_channel_change_end(true);
 	}
 
 	return qdf_status_to_os_return(status);
