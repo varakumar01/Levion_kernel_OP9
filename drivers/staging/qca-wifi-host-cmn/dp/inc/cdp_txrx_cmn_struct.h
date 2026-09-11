@@ -531,6 +531,7 @@ enum cdp_sec_type {
  *  @tx_encap_type: Transmit encap type (i.e. Raw, Native Wi-Fi, Ethernet)
  *  @sec_type: sec_type to be passed to HAL
  *  @is_tx_sniffer: Indicates if the packet has to be sniffed
+ *  @is_raw_injection: Route a raw injected data frame through host RAW TX
  *  @ppdu_cookie: 16-bit ppdu cookie that has to be replayed back in completions
  *
  *  This structure holds the parameters needed in the exception path of tx
@@ -542,6 +543,7 @@ struct cdp_tx_exception_metadata {
 	uint16_t tx_encap_type;
 	enum cdp_sec_type sec_type;
 	uint8_t is_tx_sniffer;
+	bool is_raw_injection;
 	uint16_t ppdu_cookie;
 #ifdef QCA_SUPPORT_WDS_EXTENDED
 	uint8_t is_wds_extended;
