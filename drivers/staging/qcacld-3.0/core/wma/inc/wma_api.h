@@ -42,48 +42,82 @@ typedef void *WMA_HANDLE;
 #define WMA_MGMT_TX_INJECTION_DESC_ID 0xffff
 
 #ifdef FEATURE_FRAME_INJECTION_SUPPORT
-QDF_STATUS wma_injection_tx(qdf_nbuf_t nbuf, uint8_t monitor_vdev_id);
+QDF_STATUS wma_injection_tx(qdf_nbuf_t nbuf, u8 monitor_vdev_id);
 QDF_STATUS
-wma_injection_channel_change_begin(uint8_t monitor_vdev_id,
-				   uint32_t chanfreq);
-void wma_injection_channel_change_end(void);
-bool wma_injection_complete(void *wma_handle, uint16_t desc_id,
-			    uint32_t status);
+wma_injection_channel_change_begin(u8 monitor_vdev_id, u32 chanfreq);
+void wma_injection_channel_change_end(bool channel_changed);
+bool wma_injection_complete(void *wma_handle, u16 desc_id, u32 status);
 bool wma_injection_dp_complete(void *wma_handle, qdf_nbuf_t nbuf,
-			       int32_t status);
+			       s32 status);
+bool wma_injection_vdev_start_complete(struct vdev_start_response *rsp);
+bool wma_injection_vdev_stop_complete(u8 vdev_id);
+bool wma_injection_vdev_delete_complete(u8 vdev_id);
+bool wma_injection_peer_map_complete(u8 vdev_id, const u8 *peer_addr,
+				     u16 peer_id);
+bool wma_injection_peer_unmap_complete(u8 vdev_id, u16 peer_id);
 void wma_injection_pre_stop_cleanup(void);
+void wma_injection_resume(void);
 #else
 static inline QDF_STATUS
-wma_injection_tx(qdf_nbuf_t nbuf, uint8_t monitor_vdev_id)
+wma_injection_tx(qdf_nbuf_t nbuf, u8 monitor_vdev_id)
 {
 	return QDF_STATUS_E_NOSUPPORT;
 }
 
 static inline QDF_STATUS
-wma_injection_channel_change_begin(uint8_t monitor_vdev_id,
-				   uint32_t chanfreq)
+wma_injection_channel_change_begin(u8 monitor_vdev_id, u32 chanfreq)
 {
 	return QDF_STATUS_SUCCESS;
 }
 
-static inline void wma_injection_channel_change_end(void)
+static inline void wma_injection_channel_change_end(bool channel_changed)
 {
 }
 
 static inline bool
-wma_injection_complete(void *wma_handle, uint16_t desc_id,
-		       uint32_t status)
+wma_injection_complete(void *wma_handle, u16 desc_id, u32 status)
 {
 	return false;
 }
 
 static inline bool
-wma_injection_dp_complete(void *wma_handle, qdf_nbuf_t nbuf, int32_t status)
+wma_injection_dp_complete(void *wma_handle, qdf_nbuf_t nbuf, s32 status)
+{
+	return false;
+}
+
+static inline bool
+wma_injection_vdev_start_complete(struct vdev_start_response *rsp)
+{
+	return false;
+}
+
+static inline bool wma_injection_vdev_stop_complete(u8 vdev_id)
+{
+	return false;
+}
+
+static inline bool wma_injection_vdev_delete_complete(u8 vdev_id)
+{
+	return false;
+}
+
+static inline bool
+wma_injection_peer_map_complete(u8 vdev_id, const u8 *peer_addr, u16 peer_id)
+{
+	return false;
+}
+
+static inline bool wma_injection_peer_unmap_complete(u8 vdev_id, u16 peer_id)
 {
 	return false;
 }
 
 static inline void wma_injection_pre_stop_cleanup(void)
+{
+}
+
+static inline void wma_injection_resume(void)
 {
 }
 #endif
