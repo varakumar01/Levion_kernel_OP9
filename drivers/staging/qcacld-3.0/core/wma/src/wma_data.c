@@ -614,8 +614,6 @@ wma_injection_send(tp_wma_handle wma, qdf_nbuf_t nbuf,
 		tx_exc.tid = CDP_INVALID_TID;
 		tx_exc.tx_encap_type = htt_cmn_pkt_type_raw;
 		tx_exc.sec_type = CDP_INVALID_SEC_TYPE;
-		tx_exc.is_tx_sniffer = 1;
-		tx_exc.ppdu_cookie = desc_id;
 		unsent = soc ? cdp_tx_send_exc(soc, params.vdev_id, nbuf,
 					       &tx_exc) : nbuf;
 		if (unsent) {
