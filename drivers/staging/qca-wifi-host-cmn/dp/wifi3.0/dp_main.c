@@ -13362,8 +13362,8 @@ uint16_t dp_get_peer_mac_list(ol_txrx_soc_handle soc, uint8_t vdev_id,
 
 uint16_t dp_get_peer_id(ol_txrx_soc_handle soc, uint8_t vdev_id, uint8_t *mac)
 {
-	struct dp_peer *peer = dp_peer_find_hash_find((struct dp_soc *)soc,
-						       mac, 0, vdev_id,
+	struct dp_soc *dp_soc = (struct dp_soc *)soc;
+	struct dp_peer *peer = dp_peer_find_hash_find(dp_soc, mac, 0, vdev_id,
 						       DP_MOD_ID_CDP);
 	uint16_t peer_id = HTT_INVALID_PEER;
 
@@ -13373,7 +13373,18 @@ uint16_t dp_get_peer_id(ol_txrx_soc_handle soc, uint8_t vdev_id, uint8_t *mac)
 		return peer_id;
 	}
 
+	/*
+	 * A hash entry exists before firmware publishes its peer-map event and
+	 * may remain visible while an unmap is being processed.  Return the ID
+	 * only while the firmware-owned ID map still points at this exact peer.
+	 */
+	qdf_spin_lock_bh(&dp_soc->peer_map_lock);
 	peer_id = peer->peer_id;
+	if (!(peer_id < dp_soc->max_peers &&
+	      dp_soc->peer_id_to_obj_map[peer_id] == peer))
+		peer_id = HTT_INVALID_PEER;
+	qdf_spin_unlock_bh(&dp_soc->peer_map_lock);
+
 	dp_peer_unref_delete(peer, DP_MOD_ID_CDP);
 	return peer_id;
 }
