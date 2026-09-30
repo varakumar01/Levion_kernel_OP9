@@ -181,11 +181,12 @@ static int capture_open(struct inode *inode, struct file *file)
 	return nonseekable_open(inode, file);
 }
 
-static const struct proc_ops capture_ops = {
-	.proc_open = capture_open,
-	.proc_read = capture_read,
-	.proc_poll = capture_poll,
-	.proc_lseek = noop_llseek,
+static const struct file_operations capture_ops = {
+	.owner = THIS_MODULE,
+	.open = capture_open,
+	.read = capture_read,
+	.poll = capture_poll,
+	.llseek = noop_llseek,
 };
 
 static int capture_ctl_show(struct seq_file *m, void *v)
@@ -255,10 +256,11 @@ static ssize_t capture_ctl_write(struct file *file, const char __user *ubuf,
 	return -EINVAL;
 }
 
-static const struct proc_ops capture_ctl_ops = {
-	.proc_open = capture_ctl_open, .proc_read = seq_read,
-	.proc_write = capture_ctl_write, .proc_lseek = seq_lseek,
-	.proc_release = single_release,
+static const struct file_operations capture_ctl_ops = {
+	.owner = THIS_MODULE,
+	.open = capture_ctl_open, .read = seq_read,
+	.write = capture_ctl_write, .llseek = seq_lseek,
+	.release = single_release,
 };
 
 int stealth_capture_init(void)
