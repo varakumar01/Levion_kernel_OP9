@@ -241,19 +241,21 @@ static ssize_t stealth_proc_write(struct file *file, const char __user *buf, siz
 	return -EINVAL;
 }
 
-static const struct proc_ops stealth_proc_ops = {
-	.proc_open    = stealth_proc_open,
-	.proc_read    = seq_read,
-	.proc_write   = stealth_proc_write,
-	.proc_lseek   = seq_lseek,
-	.proc_release = single_release,
+static const struct file_operations stealth_proc_ops = {
+	.owner   = THIS_MODULE,
+	.open    = stealth_proc_open,
+	.read    = seq_read,
+	.write   = stealth_proc_write,
+	.llseek  = seq_lseek,
+	.release = single_release,
 };
 
-static const struct proc_ops stealth_events_ops = {
-	.proc_open    = stealth_events_open,
-	.proc_read    = stealth_events_read,
-	.proc_poll    = stealth_events_poll,
-	.proc_lseek   = noop_llseek,
+static const struct file_operations stealth_events_ops = {
+	.owner   = THIS_MODULE,
+	.open    = stealth_events_open,
+	.read    = stealth_events_read,
+	.poll    = stealth_events_poll,
+	.llseek  = noop_llseek,
 };
 
 int stealth_proc_init(void)
