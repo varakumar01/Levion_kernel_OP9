@@ -2,6 +2,7 @@
 #include "stealth_net.h"
 #include <net/ip.h>
 #include <net/ipv6.h>
+#include <net/ip6_checksum.h>
 #include <net/route.h>
 #include <net/ip6_route.h>
 
