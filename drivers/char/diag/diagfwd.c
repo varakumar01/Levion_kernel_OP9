@@ -83,32 +83,18 @@ static int has_device_tree(void)
 }
 #endif
 
+/*
+ * The pre-8996/ATAGS-era socinfo_get_msm_cpu() and machine_is_*() target
+ * enumeration this switched on does not exist in this tree (device-tree
+ * probing replaced it). This board is device-tree-only, so
+ * driver->use_device_tree is always 1 by the time either function below is
+ * ever called (set unconditionally in diagfwd_init(), before any caller),
+ * making the legacy non-DT branches unreachable. Collapsed to the only
+ * result they could ever produce here.
+ */
 int chk_config_get_id(void)
 {
-	switch (socinfo_get_msm_cpu()) {
-	case MSM_CPU_8960:
-	case MSM_CPU_8960AB:
-		return AO8960_TOOLS_ID;
-	case MSM_CPU_8064:
-		return APQ8064_TOOLS_ID;
-	case MSM_CPU_8974:
-		return MSM8974_TOOLS_ID;
-	case MSM_CPU_8084:
-		return APQ8084_TOOLS_ID;
-	case MSM_CPU_8916:
-		return MSM8916_TOOLS_ID;
-	case MSM_CPU_8996:
-		return MSM_8996_TOOLS_ID;
-	default:
-		if (driver->use_device_tree) {
-			if (machine_is_msm8974())
-				return MSM8974_TOOLS_ID;
-			else
-				return 0;
-		} else {
-			return 0;
-		}
-	}
+	return 0;
 }
 
 /*
@@ -117,18 +103,7 @@ int chk_config_get_id(void)
  */
 int chk_apps_only(void)
 {
-	if (driver->use_device_tree)
-		return 1;
-
-	switch (socinfo_get_msm_cpu()) {
-	case MSM_CPU_8960:
-	case MSM_CPU_8960AB:
-	case MSM_CPU_8064:
-	case MSM_CPU_8974:
-		return 1;
-	default:
-		return 0;
-	}
+	return 1;
 }
 
 /*
