@@ -2,7 +2,11 @@
 #define KSU_SUSFS_DEF_H
 
 #include <linux/bits.h>
+#include <linux/bitops.h>
 #include <linux/string.h>
+#include <linux/cred.h>
+#include <linux/sched.h>
+#include <linux/compiler.h>
 
 /********/
 /* ENUM */
