@@ -22,6 +22,9 @@
 #include "selinux/selinux.h"
 #include "feature/selinux_hide.h"
 #include "feature/adb_root.h"
+#ifdef CONFIG_KSU_SUSFS
+#include <linux/susfs.h>
+#endif
 
 extern void __init ksu_lsm_hook_init(void);
 extern int ksu_handle_execveat_sucompat(int *fd, struct filename **filename_ptr,
@@ -159,6 +162,11 @@ int __init kernelsu_init(void)
 		ksu_syscall_hook_manager_init();
 
 		ksu_throne_tracker_init();
+
+#ifdef CONFIG_KSU_SUSFS
+		susfs_init();
+#endif
+
 		ksu_observer_init();
 		ksu_file_wrapper_init();
 
@@ -176,6 +184,10 @@ int __init kernelsu_init(void)
 		ksu_allowlist_init();
 
 		ksu_throne_tracker_init();
+
+#ifdef CONFIG_KSU_SUSFS
+		susfs_init();
+#endif
 
 		ksu_ksud_init();
 
