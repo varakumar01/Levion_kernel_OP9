@@ -171,12 +171,13 @@ static ssize_t tunnel_proc_write(struct file *file, const char __user *buf,
 	return count;
 }
 
-static const struct proc_ops tunnel_proc_ops = {
-	.proc_open = tunnel_proc_open,
-	.proc_read = seq_read,
-	.proc_write = tunnel_proc_write,
-	.proc_lseek = seq_lseek,
-	.proc_release = single_release,
+static const struct file_operations tunnel_proc_ops = {
+	.owner = THIS_MODULE,
+	.open = tunnel_proc_open,
+	.read = seq_read,
+	.write = tunnel_proc_write,
+	.llseek = seq_lseek,
+	.release = single_release,
 };
 
 int stealth_tunnel_init(void)

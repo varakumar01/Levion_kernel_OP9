@@ -321,9 +321,10 @@ static ssize_t ids_write(struct file *file, const char __user *ubuf,
 	return (!strcmp(cmd, "trust") || !strcmp(cmd, "untrust")) ? count : -EINVAL;
 }
 
-static const struct proc_ops ids_ops = {
-	.proc_open = ids_open, .proc_read = seq_read, .proc_write = ids_write,
-	.proc_lseek = seq_lseek, .proc_release = single_release,
+static const struct file_operations ids_ops = {
+	.owner = THIS_MODULE,
+	.open = ids_open, .read = seq_read, .write = ids_write,
+	.llseek = seq_lseek, .release = single_release,
 };
 
 int stealth_ids_init(void)
