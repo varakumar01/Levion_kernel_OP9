@@ -654,12 +654,13 @@ static ssize_t stealth_neigh_write(struct file *file, const char __user *ubuf,
 	return -EINVAL;
 }
 
-static const struct proc_ops stealth_neigh_proc_ops = {
-	.proc_open    = stealth_neigh_open,
-	.proc_read    = seq_read,
-	.proc_write   = stealth_neigh_write,
-	.proc_lseek   = seq_lseek,
-	.proc_release = single_release,
+static const struct file_operations stealth_neigh_proc_ops = {
+	.owner   = THIS_MODULE,
+	.open    = stealth_neigh_open,
+	.read    = seq_read,
+	.write   = stealth_neigh_write,
+	.llseek  = seq_lseek,
+	.release = single_release,
 };
 
 int stealth_neigh_init(void)
