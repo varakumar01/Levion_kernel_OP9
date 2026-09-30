@@ -25891,7 +25891,7 @@ wlan_hdd_cfg80211_get_channel_mon(struct wiphy *wiphy,
 
 	chandef->center_freq1 = chan_info.ch_cfreq1 ?: chan_info.ch_freq;
 	chandef->center_freq2 = chan_info.ch_cfreq2;
-	chandef->width = chan_info.ch_width;
+	chandef->width = hdd_convert_phy_bw_to_nl_bw(chan_info.ch_width);
 
 	hdd_debug("monitor freq:%d, ch_width:%d, c_freq1:%d, c_freq2:%d",
 		  chan_info.ch_freq, chandef->width, chandef->center_freq1,
