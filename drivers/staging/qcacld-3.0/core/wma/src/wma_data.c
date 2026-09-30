@@ -386,7 +386,6 @@ wma_injection_get_helper_snapshot(u8 monitor_vdev_id, u32 chanfreq,
 
 static bool __wma_injection_quiesce_helper(tp_wma_handle wma)
 {
-	struct vdev_stop_params vdev_stop = {0};
 	struct wma_injection_helper *helper = &wma_injection_ctx.helper;
 	QDF_STATUS status;
 
@@ -394,8 +393,7 @@ static bool __wma_injection_quiesce_helper(tp_wma_handle wma)
 		return false;
 	if (helper->wmi_started || helper->wmi_start_pending) {
 	    wma_injection_begin_operation(WMA_INJECTION_HELPER_OP_STOP, helper);
-	    vdev_stop.vdev_id = helper->vdev_id;
-	    status = wmi_unified_vdev_stop_send(wma->wmi_handle, &vdev_stop);
+	    status = wmi_unified_vdev_stop_send(wma->wmi_handle, helper->vdev_id);
 		if (QDF_IS_STATUS_ERROR(status)) {
 		    wma_warn("Injection helper stop failed: vdev=%u status=%d",
 			     helper->vdev_id, status);
@@ -493,7 +491,6 @@ static bool __wma_injection_destroy_helper(tp_wma_handle wma)
 {
 	const enum wma_injection_helper_op peer_unmap_op =
 		WMA_INJECTION_HELPER_OP_PEER_UNMAP;
-	struct peer_delete_cmd_params peer_delete = {0};
 	struct wma_injection_helper *helper = &wma_injection_ctx.helper;
 	ol_txrx_soc_handle soc = cds_get_context(QDF_MODULE_ID_SOC);
 	unsigned long flags;
@@ -515,10 +512,9 @@ static bool __wma_injection_destroy_helper(tp_wma_handle wma)
 		if (!peer_delete_pending) {
 			if (wait_for_peer_unmap)
 				wma_injection_begin_operation(peer_unmap_op, helper);
-			peer_delete.vdev_id = helper->vdev_id;
 			status = wmi_unified_peer_delete_send(wma->wmi_handle,
 							      helper->peer_addr,
-							      &peer_delete);
+							      helper->vdev_id);
 			if (QDF_IS_STATUS_ERROR(status)) {
 				wma_warn("Injection helper peer delete failed: vdev=%u status=%d",
 					 helper->vdev_id, status);
