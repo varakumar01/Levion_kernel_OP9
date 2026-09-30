@@ -316,6 +316,48 @@ skip_destroy:
 	return selinux_transaction_write_fn(file, buf, size, pos);
 }
 
+/*
+ * /proc/<pid>/attr/current (and the other attr/* files, which share this
+ * same fops) is a second, independent path to the same context-validity
+ * probe ksu_selinux_transaction_write() above already closes for
+ * /sys/fs/selinux/context: an unprivileged writer can write a candidate
+ * context string here and tell "not a valid type in this policy" (EINVAL)
+ * apart from "valid type, but not allowed to transition there" (EPERM),
+ * which is exactly what proc_pid_attr_write() -> security_setprocattr()
+ * reports. Hooking selinux's own setprocattr LSM hook doesn't work here:
+ * security_setprocattr() returns on the *first* registered hook for the
+ * common lsm=NULL case (see security/security.c), and selinux's hook
+ * always registers first (early security_init(), ahead of any driver's
+ * own init), so a second LSM hook added later would never run. Patching
+ * this fops write member directly -- same technique as the sel_context_ops
+ * hook above -- intercepts every caller regardless of hook order.
+ */
+static ssize_t (*proc_attr_write_fn)(struct file *file, const char __user *buf, size_t size, loff_t *pos) __read_mostly = NULL;
+static __nocfi ssize_t ksu_proc_attr_write(struct file *file, const char __user *buf, size_t size, loff_t *pos)
+{
+	if (unlikely(!ksu_selinux_hide_is_enabled))
+		goto skip_destroy;
+
+	if (!test_thread_flag(TIF_SECCOMP))
+		goto skip_destroy;
+
+	if (current_uid().val < 10000)
+		goto skip_destroy;
+
+	char kbuf[128] = { 0 };
+	if (ksu_copy_from_user_retry(kbuf, buf, 127))
+		goto skip_destroy;
+
+	if (!ksu_should_destroy_context(kbuf))
+		goto skip_destroy;
+
+	pr_info("selinux_hide: proc_attr_write: destroy: %s \n", kbuf);
+	return -EINVAL;
+
+skip_destroy:
+	return proc_attr_write_fn(file, buf, size, pos);
+}
+
 #if defined(KSU_COMPAT_USE_SELINUX_STATE)
 extern struct selinux_state selinux_state;
 #define ksu_selinux_kernel_status_page() selinux_kernel_status_page(&selinux_state)
@@ -539,6 +581,43 @@ static void unhook_selinux_transaction_write(void)
 	pr_info("ksu_selinux_hide: unhooked sel_context_ops->write\n");
 }
 
+static void hook_proc_attr_write(void)
+{
+	if (proc_attr_write_fn)
+		return;
+
+	struct file_operations *ops = NULL;
+	if (resolve_fops("/proc/self/attr/current", &ops)) {
+		pr_err("ksu_selinux_hide: proc_pid_attr_operations not found, attr hide disabled\n");
+		return;
+	}
+
+	if (!ops->write) {
+		pr_err("ksu_selinux_hide: proc_pid_attr_operations->write is NULL\n");
+		return;
+	}
+
+	proc_attr_write_fn = ops->write;
+	patch_fops_write(ops, ksu_proc_attr_write);
+	pr_info("ksu_selinux_hide: hooked proc_pid_attr_operations->write\n");
+}
+
+static void unhook_proc_attr_write(void)
+{
+	if (!proc_attr_write_fn)
+		return;
+
+	struct file_operations *ops = NULL;
+	if (resolve_fops("/proc/self/attr/current", &ops)) {
+		pr_err("ksu_selinux_hide: proc_pid_attr_operations not found on unhook\n");
+		return;
+	}
+
+	patch_fops_write(ops, proc_attr_write_fn);
+	proc_attr_write_fn = NULL;
+	pr_info("ksu_selinux_hide: unhooked proc_pid_attr_operations->write\n");
+}
+
 static void hook_selinux_status_open(void)
 {
 	if (orig_sel_open_handle_status)
@@ -638,6 +717,7 @@ static int ksu_hide_init_thread(void *data)
 		ksu_selinux_hide_enable();
 
 	hook_selinux_transaction_write();
+	hook_proc_attr_write();
 
 	int tries = 0;
 try_again:
@@ -671,6 +751,14 @@ void __init ksu_selinux_hide_init(void)
 
 	ksu_add_probe_to_list(KSU_SEPOLICY_CMD_TYPE, (const char *[]){ KERNEL_SU_DOMAIN, NULL });
 	ksu_add_probe_to_list(KSU_SEPOLICY_CMD_TYPE, (const char *[]){ KERNEL_SU_FILE, NULL });
+	/*
+	 * magisk_file is a generic type this board's base policy carries
+	 * regardless of whether Magisk is actually installed (the magisk
+	 * domain itself correctly reports invalid when absent -- only the
+	 * file label type lingers). Hide it the same way so a context probe
+	 * can't use it as a root-management-capable tell on its own.
+	 */
+	ksu_add_probe_to_list(KSU_SEPOLICY_CMD_TYPE, (const char *[]){ "magisk_file", NULL });
 	kthread_run(ksu_hide_init_thread, NULL, "ksu_selinux_hide_init");
 }
 
@@ -684,6 +772,7 @@ void __exit ksu_selinux_hide_exit(void)
 	}
 
 	unhook_selinux_status_open();
+	unhook_proc_attr_write();
 	unhook_selinux_transaction_write();
 	ksu_selinux_hide_disable();
 	/* fake_status is intentionally never freed: filp->private_data on any
