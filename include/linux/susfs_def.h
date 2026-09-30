@@ -155,6 +155,23 @@ static inline void susfs_clear_current_proc_no_su(void) {
 		unlikely(test_bit(AS_FLAGS_SUS_MAP, &inode->i_mapping->flags)) && \
 		susfs_is_current_proc_umounted_app()
 
+/*
+ * Auto-hide, no per-file registration needed: any mapped file whose last
+ * path component contains a known ROM-branding string gets the same
+ * SUS_MAP treatment as an explicitly-registered one (same call sites,
+ * same display code -- see SUSFS_IS_INODE_SUS_MAP's callers).
+ * ponytail: one hardcoded needle, matched against d_name only (cheap --
+ * no d_path() walk on every /proc/<pid>/maps line). Add more needles
+ * below if another ROM string needs covering; move to a full d_path()
+ * match only if a real case needs a directory-name tell, not a filename one.
+ */
+#define SUSFS_ROM_TELL_NEEDLE "lineage"
+
+#define SUSFS_IS_DENTRY_ROM_TELL(dentry) \
+		((dentry) && (dentry)->d_name.name && \
+		 susfs_is_current_proc_umounted_app() && \
+		 strstr((dentry)->d_name.name, SUSFS_ROM_TELL_NEEDLE))
+
 #define SUSFS_IS_INODE_OPEN_REDIRECT_WITHOUT_UID_CHECK(inode) \
 		inode && inode->i_mapping && \
 		unlikely(test_bit(AS_FLAGS_OPEN_REDIRECT, &inode->i_mapping->flags))
