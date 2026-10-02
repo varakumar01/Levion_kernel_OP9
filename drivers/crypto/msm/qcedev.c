@@ -353,7 +353,7 @@ void qcedev_cipher_req_cb(void *cookie, unsigned char *icv,
 	podev = handle->cntl;
 	qcedev_areq = podev->active_command;
 
-	if (iv)
+	if (iv && qcedev_areq)
 		memcpy(&qcedev_areq->cipher_op_req.iv[0], iv,
 					qcedev_areq->cipher_op_req.ivlen);
 	tasklet_schedule(&podev->done_tasklet);
