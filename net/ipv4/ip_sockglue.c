@@ -397,6 +397,18 @@ int ip_ra_control(struct sock *sk, unsigned char on,
 	return 0;
 }
 
+static void ipv4_icmp_error_rfc4884(const struct sk_buff *skb,
+				    struct sock_ee_data_rfc4884 *out)
+{
+	switch (icmp_hdr(skb)->type) {
+	case ICMP_DEST_UNREACH:
+	case ICMP_TIME_EXCEEDED:
+	case ICMP_PARAMETERPROB:
+		ip_icmp_error_rfc4884(skb, out, sizeof(struct icmphdr),
+				      icmp_hdr(skb)->un.reserved[1] * 4);
+	}
+}
+
 void ip_icmp_error(struct sock *sk, struct sk_buff *skb, int err,
 		   __be16 port, u32 info, u8 *payload)
 {
@@ -419,6 +431,9 @@ void ip_icmp_error(struct sock *sk, struct sk_buff *skb, int err,
 	serr->port = port;
 
 	if (skb_pull(skb, payload - skb->data)) {
+		if (inet_sk(sk)->recverr_rfc4884)
+			ipv4_icmp_error_rfc4884(skb, &serr->ee.ee_rfc4884);
+
 		skb_reset_transport_header(skb);
 		if (sock_queue_err_skb(sk, skb) == 0)
 			return;
@@ -911,6 +926,7 @@ static int do_ip_setsockopt(struct sock *sk, int level, int optname,
 	case IP_RECVORIGDSTADDR:
 	case IP_CHECKSUM:
 	case IP_RECVFRAGSIZE:
+	case IP_RECVERR_RFC4884:
 		if (optlen >= sizeof(int)) {
 			if (copy_from_sockptr(&val, optval, sizeof(val)))
 				return -EFAULT;
@@ -1068,6 +1084,11 @@ static int do_ip_setsockopt(struct sock *sk, int level, int optname,
 		inet->recverr = !!val;
 		if (!val)
 			skb_queue_purge(&sk->sk_error_queue);
+		break;
+	case IP_RECVERR_RFC4884:
+		if (val < 0 || val > 1)
+			goto e_inval;
+		inet->recverr_rfc4884 = !!val;
 		break;
 	case IP_MULTICAST_TTL:
 		if (sk->sk_type == SOCK_STREAM)
@@ -1406,8 +1427,7 @@ int ip_setsockopt(struct sock *sk, int level, int optname, sockptr_t optval,
 	if (level != SOL_IP)
 		return -ENOPROTOOPT;
 
-	err = do_ip_setsockopt(sk, level, optname, USER_SOCKPTR(optval),
-			       optlen);
+	err = do_ip_setsockopt(sk, level, optname, optval, optlen);
 #if IS_ENABLED(CONFIG_BPFILTER_UMH)
 	if (optname >= BPFILTER_IPT_SO_SET_REPLACE &&
 	    optname < BPFILTER_IPT_SET_MAX)
@@ -1419,8 +1439,7 @@ int ip_setsockopt(struct sock *sk, int level, int optname, sockptr_t optval,
 			optname != IP_IPSEC_POLICY &&
 			optname != IP_XFRM_POLICY &&
 			!ip_mroute_opt(optname))
-		err = nf_setsockopt(sk, PF_INET, optname, USER_SOCKPTR(optval),
-				    optlen);
+		err = nf_setsockopt(sk, PF_INET, optname, optval, optlen);
 #endif
 	return err;
 }
@@ -1619,6 +1638,9 @@ static int do_ip_getsockopt(struct sock *sk, int level, int optname,
 	case IP_RECVERR:
 		val = inet->recverr;
 		break;
+	case IP_RECVERR_RFC4884:
+		val = inet->recverr_rfc4884;
+		break;
 	case IP_MULTICAST_TTL:
 		val = inet->mc_ttl;
 		break;
@@ -1676,7 +1698,8 @@ static int do_ip_getsockopt(struct sock *sk, int level, int optname,
 		if (sk->sk_type != SOCK_STREAM)
 			return -ENOPROTOOPT;
 
-		msg.msg_control = (__force void *) optval;
+		msg.msg_control_is_user = true;
+		msg.msg_control_user = optval;
 		msg.msg_controllen = len;
 		msg.msg_flags = in_compat_syscall() ? MSG_CMSG_COMPAT : 0;
 

@@ -101,6 +101,7 @@
 #include <linux/if_tun.h>
 #include <linux/ipv6_route.h>
 #include <linux/route.h>
+#include <linux/termios.h>
 #include <linux/sockios.h>
 #include <net/busy_poll.h>
 #include <linux/errqueue.h>
@@ -937,14 +938,9 @@ EXPORT_SYMBOL(sock_recvmsg);
 int kernel_recvmsg(struct socket *sock, struct msghdr *msg,
 		   struct kvec *vec, size_t num, size_t size, int flags)
 {
-	mm_segment_t oldfs = get_fs();
-	int result;
-
+	msg->msg_control_is_user = false;
 	iov_iter_kvec(&msg->msg_iter, READ, vec, num, size);
-	set_fs(KERNEL_DS);
-	result = sock_recvmsg(sock, msg, flags);
-	set_fs(oldfs);
-	return result;
+	return sock_recvmsg(sock, msg, flags);
 }
 EXPORT_SYMBOL(kernel_recvmsg);
 
@@ -2086,7 +2082,7 @@ static bool sock_use_custom_sol_socket(const struct socket *sock)
  *	Set a socket option. Because we don't know the option lengths we have
  *	to pass the user mode parameter for the protocols to sort out.
  */
-int __sys_setsockopt(int fd, int level, int optname, char __user *optval,
+int __sys_setsockopt(int fd, int level, int optname, char __user *user_optval,
 		int optlen)
 {
 	sockptr_t optval = USER_SOCKPTR(user_optval);
@@ -2107,7 +2103,7 @@ int __sys_setsockopt(int fd, int level, int optname, char __user *optval,
 
 	if (!in_compat_syscall())
 		err = BPF_CGROUP_RUN_PROG_SETSOCKOPT(sock->sk, &level, &optname,
-						     optval, &optlen,
+						     user_optval, &optlen,
 						     &kernel_optval);
 	if (err < 0)
 		goto out_put;
@@ -2166,7 +2162,6 @@ int __sys_getsockopt(int fd, int level, int optname, char __user *optval,
 	else
 		err = sock->ops->getsockopt(sock, level, optname, optval,
 					    optlen);
-
 	if (!in_compat_syscall())
 		err = BPF_CGROUP_RUN_PROG_GETSOCKOPT(sock->sk, level, optname,
 						     optval, optlen, max_optlen,
@@ -2229,7 +2224,8 @@ static int copy_msghdr_from_user(struct msghdr *kmsg,
 	if (copy_from_user(&msg, umsg, sizeof(*umsg)))
 		return -EFAULT;
 
-	kmsg->msg_control = (void __force *)msg.msg_control;
+	kmsg->msg_control_is_user = true;
+	kmsg->msg_control_user = msg.msg_control;
 	kmsg->msg_controllen = msg.msg_controllen;
 	kmsg->msg_flags = msg.msg_flags;
 
@@ -2304,16 +2300,10 @@ static int ____sys_sendmsg(struct socket *sock, struct msghdr *msg_sys,
 				goto out;
 		}
 		err = -EFAULT;
-		/*
-		 * Careful! Before this, msg_sys->msg_control contains a user pointer.
-		 * Afterwards, it will be a kernel pointer. Thus the compiler-assisted
-		 * checking falls down on this.
-		 */
-		if (copy_from_user(ctl_buf,
-				   (void __user __force *)msg_sys->msg_control,
-				   ctl_len))
+		if (copy_from_user(ctl_buf, msg_sys->msg_control_user, ctl_len))
 			goto out_freectl;
 		msg_sys->msg_control = ctl_buf;
+		msg_sys->msg_control_is_user = false;
 	}
 	msg_sys->msg_flags = flags;
 
@@ -3545,6 +3535,7 @@ static int compat_sock_ioctl_trans(struct file *file, struct socket *sock,
 	case SIOCSARP:
 	case SIOCGARP:
 	case SIOCDARP:
+	case SIOCOUTQ:
 	case SIOCOUTQNSD:
 	case SIOCATMARK:
 		return sock_do_ioctl(net, sock, cmd, arg);

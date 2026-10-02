@@ -56,7 +56,8 @@ int get_compat_msghdr(struct msghdr *kmsg,
 	if (kmsg->msg_namelen > sizeof(struct sockaddr_storage))
 		kmsg->msg_namelen = sizeof(struct sockaddr_storage);
 
-	kmsg->msg_control = compat_ptr(msg.msg_control);
+	kmsg->msg_control_is_user = true;
+	kmsg->msg_control_user = compat_ptr(msg.msg_control);
 	kmsg->msg_controllen = msg.msg_controllen;
 
 	if (save_addr)
@@ -105,7 +106,7 @@ int get_compat_msghdr(struct msghdr *kmsg,
 	((ucmlen) >= sizeof(struct compat_cmsghdr) && \
 	 (ucmlen) <= (unsigned long) \
 	 ((mhdr)->msg_controllen - \
-	  ((char *)(ucmsg) - (char *)(mhdr)->msg_control)))
+	  ((char __user *)(ucmsg) - (char __user *)(mhdr)->msg_control_user)))
 
 static inline struct compat_cmsghdr __user *cmsg_compat_nxthdr(struct msghdr *msg,
 		struct compat_cmsghdr __user *cmsg, int cmsg_len)
@@ -166,20 +167,21 @@ int cmsghdr_from_user_compat_to_kern(struct msghdr *kmsg, struct sock *sk,
 	memset(kcmsg, 0, kcmlen);
 	ucmsg = CMSG_COMPAT_FIRSTHDR(kmsg);
 	while (ucmsg != NULL) {
-		if (__get_user(ucmlen, &ucmsg->cmsg_len))
+		struct compat_cmsghdr cmsg;
+		if (copy_from_user(&cmsg, ucmsg, sizeof(cmsg)))
 			goto Efault;
-		if (!CMSG_COMPAT_OK(ucmlen, ucmsg, kmsg))
+		if (!CMSG_COMPAT_OK(cmsg.cmsg_len, ucmsg, kmsg))
 			goto Einval;
-		tmp = ((ucmlen - sizeof(*ucmsg)) + sizeof(struct cmsghdr));
+		tmp = ((cmsg.cmsg_len - sizeof(*ucmsg)) + sizeof(struct cmsghdr));
 		if ((char *)kcmsg_base + kcmlen - (char *)kcmsg < CMSG_ALIGN(tmp))
 			goto Einval;
 		kcmsg->cmsg_len = tmp;
+		kcmsg->cmsg_level = cmsg.cmsg_level;
+		kcmsg->cmsg_type = cmsg.cmsg_type;
 		tmp = CMSG_ALIGN(tmp);
-		if (__get_user(kcmsg->cmsg_level, &ucmsg->cmsg_level) ||
-		    __get_user(kcmsg->cmsg_type, &ucmsg->cmsg_type) ||
-		    copy_from_user(CMSG_DATA(kcmsg),
+		if (copy_from_user(CMSG_DATA(kcmsg),
 				   CMSG_COMPAT_DATA(ucmsg),
-				   (ucmlen - sizeof(*ucmsg))))
+				   (cmsg.cmsg_len - sizeof(*ucmsg))))
 			goto Efault;
 
 		/* Advance. */
@@ -263,7 +265,7 @@ int put_cmsg_compat(struct msghdr *kmsg, int level, int type, int len, void *dat
 	return 0;
 }
 
-void scm_detach_fds_compat(struct msghdr *kmsg, struct scm_cookie *scm)
+static int scm_max_fds_compat(struct msghdr *msg)
 {
 	if (msg->msg_controllen <= sizeof(struct compat_cmsghdr))
 		return 0;
@@ -279,31 +281,15 @@ void scm_detach_fds_compat(struct msghdr *msg, struct scm_cookie *scm)
 	int __user *cmsg_data = CMSG_COMPAT_DATA(cm);
 	int err = 0, i;
 
-	if (fdnum < fdmax)
-		fdmax = fdnum;
-
-	for (i = 0, cmfptr = (int __user *) CMSG_COMPAT_DATA(cm); i < fdmax; i++, cmfptr++) {
-		int new_fd;
-		err = security_file_receive(fp[i]);
-		if (err)
-			break;
-		err = get_unused_fd_flags(MSG_CMSG_CLOEXEC & kmsg->msg_flags
-					  ? O_CLOEXEC : 0);
+	for (i = 0; i < fdmax; i++) {
+		err = receive_fd_user(scm->fp->fp[i], cmsg_data + i, o_flags);
 		if (err < 0)
 			break;
-		new_fd = err;
-		err = put_user(new_fd, cmfptr);
-		if (err) {
-			put_unused_fd(new_fd);
-			break;
-		}
-		/* Bump the usage count and install the file. */
-		__receive_sock(fp[i]);
-		fd_install(new_fd, get_file(fp[i]));
 	}
 
 	if (i > 0) {
 		int cmlen = CMSG_COMPAT_LEN(i * sizeof(int));
+
 		err = put_user(SOL_SOCKET, &cm->cmsg_level);
 		if (!err)
 			err = put_user(SCM_RIGHTS, &cm->cmsg_type);
@@ -311,16 +297,19 @@ void scm_detach_fds_compat(struct msghdr *msg, struct scm_cookie *scm)
 			err = put_user(cmlen, &cm->cmsg_len);
 		if (!err) {
 			cmlen = CMSG_COMPAT_SPACE(i * sizeof(int));
-			kmsg->msg_control += cmlen;
-			kmsg->msg_controllen -= cmlen;
+			if (msg->msg_controllen < cmlen)
+				cmlen = msg->msg_controllen;
+			msg->msg_control += cmlen;
+			msg->msg_controllen -= cmlen;
 		}
 	}
-	if (i < fdnum)
-		kmsg->msg_flags |= MSG_CTRUNC;
+
+	if (i < scm->fp->count || (scm->fp->count && fdmax <= 0))
+		msg->msg_flags |= MSG_CTRUNC;
 
 	/*
-	 * All of the files that fit in the message have had their
-	 * usage counts incremented, so we just free the list.
+	 * All of the files that fit in the message have had their usage counts
+	 * incremented, so we just free the list.
 	 */
 	__scm_destroy(scm);
 }
