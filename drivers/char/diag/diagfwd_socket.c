@@ -506,8 +506,7 @@ static void socket_open_server(struct diag_socket_info *info)
 		return;
 	}
 
-	kernel_setsockopt(info->hdl, SOL_SOCKET, SO_RCVBUF,
-			  (char *)&size, sizeof(size));
+	sock_set_rcvbuf(info->hdl->sk, size);
 
 	write_lock_bh(&info->hdl->sk->sk_callback_lock);
 	info->hdl->sk->sk_user_data = (void *)(info);
