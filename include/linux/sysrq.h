@@ -49,6 +49,7 @@ int register_sysrq_key(int key, struct sysrq_key_op *op);
 int unregister_sysrq_key(int key, struct sysrq_key_op *op);
 struct sysrq_key_op *__sysrq_get_key_op(int key);
 
+int sysrq_mask(void);
 int sysrq_toggle_support(int enable_mask);
 
 #else

@@ -1042,6 +1042,14 @@ static inline void sysrq_unregister_handler(void)
 
 #endif /* CONFIG_INPUT */
 
+int sysrq_mask(void)
+{
+	if (sysrq_always_enabled)
+		return 1;
+	return sysrq_enabled;
+}
+EXPORT_SYMBOL(sysrq_mask);
+
 int sysrq_toggle_support(int enable_mask)
 {
 	bool was_enabled = sysrq_on();
