@@ -5,6 +5,8 @@
 #ifndef __LINUX_FILTER_H__
 #define __LINUX_FILTER_H__
 
+#include <stdarg.h>
+
 #include <linux/atomic.h>
 #include <linux/refcount.h>
 #include <linux/compat.h>
@@ -567,8 +569,8 @@ struct bpf_prog {
 					    const struct bpf_insn *insn);
 	/* Instructions for interpreter */
 	union {
-		DECLARE_FLEX_ARRAY(struct sock_filter, insns);
-		DECLARE_FLEX_ARRAY(struct bpf_insn, insnsi);
+		struct sock_filter	insns[0];
+		struct bpf_insn		insnsi[0];
 	};
 };
 
@@ -1366,7 +1368,7 @@ struct bpf_sockopt_kern {
 	s32		retval;
 };
 
-int copy_bpf_fprog_from_user(struct sock_fprog *dst, sockptr_t src, int len);
+int copy_bpf_fprog_from_user(struct sock_fprog *dst, void __user *src, int len);
 
 struct bpf_sk_lookup_kern {
 	u16		family;
