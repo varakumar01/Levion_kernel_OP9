@@ -2238,9 +2238,13 @@ static void xs_tcp_set_socket_timeouts(struct rpc_xprt *xprt,
 	spin_unlock(&xprt->transport_lock);
 
 	/* TCP Keepalive options */
-	sock_set_keepalive(sock->sk);
-	tcp_sock_set_keepintvl(sock->sk, keepidle);
-	tcp_sock_set_keepcnt(sock->sk, keepcnt);
+	kernel_setsockopt(sock, SOL_SOCKET, SO_KEEPALIVE,
+			(char *)&opt_on, sizeof(opt_on));
+	tcp_sock_set_keepidle(sock->sk, keepidle);
+	kernel_setsockopt(sock, SOL_TCP, TCP_KEEPINTVL,
+			(char *)&keepidle, sizeof(keepidle));
+	kernel_setsockopt(sock, SOL_TCP, TCP_KEEPCNT,
+			(char *)&keepcnt, sizeof(keepcnt));
 
 	/* TCP user timeout (see RFC5482) */
 	tcp_sock_set_user_timeout(sock->sk, timeo);
