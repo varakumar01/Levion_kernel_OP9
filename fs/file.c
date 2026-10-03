@@ -8,6 +8,7 @@
  */
 
 #include <linux/syscalls.h>
+#include <linux/close_range.h>
 #include <linux/export.h>
 #include <linux/fs.h>
 #include <linux/kernel.h>
