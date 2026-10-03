@@ -430,6 +430,9 @@ struct tcp_sock {
 	 */
 	struct request_sock __rcu *fastopen_rsk;
 	struct saved_syn *saved_syn;
+
+	/* Rerouting information */
+	u16	ecn_rehash;	/* PLB triggered rehash attempts */
 };
 
 enum tsq_enum {
@@ -511,7 +514,8 @@ static inline void tcp_saved_syn_free(struct tcp_sock *tp)
 
 static inline u32 tcp_saved_syn_len(const struct saved_syn *saved_syn)
 {
-	return saved_syn->network_hdrlen + saved_syn->tcp_hdrlen;
+	return saved_syn->mac_hdrlen + saved_syn->network_hdrlen +
+		saved_syn->tcp_hdrlen;
 }
 
 struct sk_buff *tcp_get_timestamping_opt_stats(const struct sock *sk);
@@ -539,8 +543,5 @@ void tcp_sock_set_nodelay(struct sock *sk);
 void tcp_sock_set_quickack(struct sock *sk, int val);
 int tcp_sock_set_syncnt(struct sock *sk, int val);
 void tcp_sock_set_user_timeout(struct sock *sk, u32 val);
-
-int tcp_sock_set_keepidle_locked(struct sock *sk, int val);
-int tcp_sock_set_keepidle(struct sock *sk, int val);
 
 #endif	/* _LINUX_TCP_H */

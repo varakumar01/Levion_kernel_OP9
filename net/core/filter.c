@@ -108,29 +108,6 @@ int copy_bpf_fprog_from_user(struct sock_fprog *dst, sockptr_t src, int len)
 }
 EXPORT_SYMBOL_GPL(copy_bpf_fprog_from_user);
 
-int copy_bpf_fprog_from_user(struct sock_fprog *dst, void __user *src, int len)
-{
-	if (in_compat_syscall()) {
-		struct compat_sock_fprog f32;
-
-		if (len != sizeof(f32))
-			return -EINVAL;
-		if (copy_from_user(&f32, src, sizeof(f32)))
-			return -EFAULT;
-		memset(dst, 0, sizeof(*dst));
-		dst->len = f32.len;
-		dst->filter = compat_ptr(f32.filter);
-	} else {
-		if (len != sizeof(*dst))
-			return -EINVAL;
-		if (copy_from_user(dst, src, sizeof(*dst)))
-			return -EFAULT;
-	}
-
-	return 0;
-}
-EXPORT_SYMBOL_GPL(copy_bpf_fprog_from_user);
-
 /**
  *	sk_filter_trim_cap - run a packet through a socket filter
  *	@sk: sock associated with &sk_buff
@@ -4722,7 +4699,7 @@ static u64 __bpf_get_netns_cookie(struct sock *sk)
 {
 	const struct net *net = sk ? sock_net(sk) : &init_net;
 
-	return atomic64_read(&net->net_cookie);
+	return net->net_cookie;
 }
 
 BPF_CALL_1(bpf_get_netns_cookie_sock, struct sock *, ctx)
