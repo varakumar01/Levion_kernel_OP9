@@ -3292,6 +3292,9 @@ int oplus_display_private_api_init(void)
 		return -EPROBE_DEFER;
 	}
 
+	if (oplus_display_kobj)
+		return 0;
+
 	oplus_display_kobj = kobject_create_and_add("oplus_display", kernel_kobj);
 
 	if (!oplus_display_kobj) {
