@@ -801,7 +801,7 @@ static struct dst_entry *tcp_v6_route_req(const struct sock *sk,
 {
 	tcp_v6_init_req(req, sk, skb);
 
-	if (security_inet_conn_request(sk, skb, req))
+	if (security_inet_conn_request((struct sock *)sk, skb, req))
 		return NULL;
 
 	return inet6_csk_route_req(sk, &fl->u.ip6, req, IPPROTO_TCP);
