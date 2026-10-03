@@ -942,7 +942,7 @@ static int inet_ulp_can_listen(const struct sock *sk)
 {
 	const struct inet_connection_sock *icsk = inet_csk(sk);
 
-	if (icsk->icsk_ulp_ops)
+	if (icsk->icsk_ulp_ops && !icsk->icsk_ulp_ops->clone)
 		return -EINVAL;
 
 	return 0;
