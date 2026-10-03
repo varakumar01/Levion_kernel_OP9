@@ -156,7 +156,7 @@ const struct nla_policy vendor_attr_policy[
 						.len = sizeof(uint32_t)
 	},
 	[QCA_WLAN_VENDOR_ATTR_NDP_IPV6_ADDR] = {
-						.type = NLA_EXACT_LEN,
+						.type = NLA_BINARY,
 						.len = QDF_IPV6_ADDR_SIZE
 	},
 	[QCA_WLAN_VENDOR_ATTR_NDP_TRANSPORT_PORT] = {
