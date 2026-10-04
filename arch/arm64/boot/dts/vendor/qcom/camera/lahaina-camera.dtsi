@@ -453,7 +453,7 @@
 				<&apps_smmu 0x2420 0x400>;
 			cam-smmu-label = "icp";
 			qcom,iommu-dma-addr-pool = <0x10c00000 0xee300000>;
-			qcom,iommu-faults = "stall-disable", "non-fatal";
+			qcom,iommu-faults = "stall-disable", "HUPCF", "non-fatal";
 			iova-region-discard = <0xdff00000 0x300000>;
 			dma-coherent-hint-cached;
 			icp_iova_mem_map: iova-mem-map {
