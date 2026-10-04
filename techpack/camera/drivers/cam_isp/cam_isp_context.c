@@ -742,6 +742,14 @@ static void __cam_isp_ctx_send_sof_timestamp(
 {
 	struct cam_req_mgr_message   req_msg;
 
+	if ((!ctx_isp->is_anchor_instance) &&
+		(sof_event_status == CAM_REQ_MGR_SOF_EVENT_SUCCESS)) {
+		CAM_DBG(CAM_ISP,
+			"CTX:%d isn't anchor instance, don't send sof event for req:%lld",
+			ctx_isp->base->ctx_id, request_id);
+		return;
+	}
+
 	if ((ctx_isp->use_frame_header_ts) || (request_id == 0))
 		goto end;
 
@@ -5604,6 +5612,8 @@ static int __cam_isp_ctx_start_dev_in_ready(struct cam_context *ctx,
 	int rc = 0;
 	int i;
 	struct cam_isp_start_args        start_isp;
+	struct cam_hw_cmd_args           hw_cmd_args;
+	struct cam_isp_hw_cmd_args       isp_hw_cmd_args;
 	struct cam_ctx_request          *req;
 	struct cam_isp_ctx_req          *req_isp;
 	struct cam_isp_context          *ctx_isp =
@@ -5691,6 +5701,19 @@ static int __cam_isp_ctx_start_dev_in_ready(struct cam_context *ctx,
 			req->request_id, ctx_isp->active_req_cnt, ctx->ctx_id,
 			ctx_isp->offline_context);
 	}
+
+	hw_cmd_args.ctxt_to_hw_map = ctx_isp->hw_ctx;
+	hw_cmd_args.cmd_type = CAM_HW_MGR_CMD_INTERNAL;
+	isp_hw_cmd_args.cmd_type = CAM_ISP_HW_MGR_GET_ANCHOR_CONFIG;
+	hw_cmd_args.u.internal_args = (void *)&isp_hw_cmd_args;
+	rc = ctx->hw_mgr_intf->hw_cmd(ctx->hw_mgr_intf->hw_mgr_priv,
+		&hw_cmd_args);
+	if (rc) {
+		CAM_ERR(CAM_ISP, "HW command failed");
+		goto end;
+	}
+
+	ctx_isp->is_anchor_instance = isp_hw_cmd_args.u.is_anchor_instance;
 
 	/*
 	 * Only place to change state before calling the hw due to
