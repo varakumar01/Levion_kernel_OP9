@@ -3931,7 +3931,11 @@ static int cam_req_mgr_cb_notify_trigger(
 		link->watchdog->pause_timer = false;
 
 	if (link->dual_trigger) {
+#ifndef OPLUS_FEATURE_CAMERA_COMMON
 		if ((trigger_id >= 0) && (trigger_id <
+#else
+		if ((trigger != CAM_TRIGGER_POINT_RDI_SOF) && (trigger_id >= 0) && (trigger_id <
+#endif
 			CAM_REQ_MGR_MAX_TRIGGERS)) {
 			link->trigger_cnt[trigger_id][trigger]++;
 			rc = __cam_req_mgr_check_for_dual_trigger(link, trigger);
