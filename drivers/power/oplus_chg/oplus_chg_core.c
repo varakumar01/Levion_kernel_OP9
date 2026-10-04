@@ -262,7 +262,7 @@ int oplus_chg_reg_mod_notifier(struct oplus_chg_mod *ocm,
 		pr_err("%s mod not support notifier\n", ocm->desc->name);
 		return -EINVAL;
 	}
-	return atomic_notifier_chain_register(ocm->notifier, nb);
+	return blocking_notifier_chain_register(ocm->notifier, nb);
 }
 EXPORT_SYMBOL_GPL(oplus_chg_reg_mod_notifier);
 
@@ -275,7 +275,7 @@ void oplus_chg_unreg_mod_notifier(struct oplus_chg_mod *ocm,
 		pr_err("%s mod not support notifier\n", ocm->desc->name);
 		return;
 	}
-	atomic_notifier_chain_unregister(ocm->notifier, nb);
+	blocking_notifier_chain_unregister(ocm->notifier, nb);
 }
 EXPORT_SYMBOL_GPL(oplus_chg_unreg_mod_notifier);
 
@@ -297,7 +297,7 @@ int oplus_chg_mod_event(struct oplus_chg_mod *ocm_receive,
 		pr_err("%s mod not support notifier\n", ocm_receive->desc->name);
 		return -EINVAL;
 	}
-	atomic_notifier_call_chain(ocm_receive->notifier,
+	blocking_notifier_call_chain(ocm_receive->notifier,
 				   events, ocm_send);
 
 	return 0;
@@ -314,7 +314,7 @@ int oplus_chg_anon_mod_event(struct oplus_chg_mod *ocm_receive,
 		pr_err("%s mod not support notifier\n", ocm_receive->desc->name);
 		return -EINVAL;
 	}
-	atomic_notifier_call_chain(ocm_receive->notifier,
+	blocking_notifier_call_chain(ocm_receive->notifier,
 				   events, NULL);
 
 	return 0;

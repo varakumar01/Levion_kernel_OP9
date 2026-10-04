@@ -78,10 +78,10 @@ struct oplus_chg_device {
 	int notify_code;
 };
 
-static ATOMIC_NOTIFIER_HEAD(usb_ocm_notifier);
-static ATOMIC_NOTIFIER_HEAD(batt_ocm_notifier);
+static BLOCKING_NOTIFIER_HEAD(usb_ocm_notifier);
+static BLOCKING_NOTIFIER_HEAD(batt_ocm_notifier);
 #ifndef CONFIG_OPLUS_CHG_OOS
-static ATOMIC_NOTIFIER_HEAD(ac_ocm_notifier);
+static BLOCKING_NOTIFIER_HEAD(ac_ocm_notifier);
 #endif /* CONFIG_OPLUS_CHG_OOS */
 
 __maybe_unused static bool is_usb_psy_available(struct oplus_chg_device *dev)

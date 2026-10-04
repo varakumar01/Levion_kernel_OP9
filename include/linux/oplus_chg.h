@@ -367,7 +367,7 @@ struct oplus_chg_mod {
 	struct device dev;
 	struct work_struct changed_work;
 	struct delayed_work deferred_register_work;
-	struct atomic_notifier_head *notifier;
+	struct blocking_notifier_head *notifier;
 	spinlock_t changed_lock;
 	bool changed;
 	bool initialized;

@@ -113,7 +113,7 @@ static struct oplus_chg_comm_config default_chg = {
 	.fast_vchg_max_mv = 22000,
 	.batt_curr_limit_thr_mv = 4180,
 };
-static ATOMIC_NOTIFIER_HEAD(comm_ocm_notifier);
+static BLOCKING_NOTIFIER_HEAD(comm_ocm_notifier);
 
 __maybe_unused static bool is_batt_ocm_available(struct oplus_chg_comm *dev)
 {

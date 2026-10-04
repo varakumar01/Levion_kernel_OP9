@@ -42,7 +42,7 @@ struct oplus_chg_wls_state_handler {
 	int (*exit_state)(struct oplus_chg_wls *wls_dev);
 };
 
-static ATOMIC_NOTIFIER_HEAD(wls_ocm_notifier);
+static BLOCKING_NOTIFIER_HEAD(wls_ocm_notifier);
 static bool adsp_started;
 static bool online_pending;
 
