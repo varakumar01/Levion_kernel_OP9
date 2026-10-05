@@ -1401,6 +1401,9 @@ int cam_ois_driver_cmd(struct cam_ois_ctrl_t *o_ctrl, void *arg)
 		}
 		break;
 	}
+	case CAM_FLUSH_REQ:
+		/* settings are applied in CAM_CONFIG_DEV, nothing is queued */
+		break;
 	default:
 		CAM_ERR(CAM_OIS, "invalid opcode 0x%x", cmd->op_code);
 		goto release_mutex;
