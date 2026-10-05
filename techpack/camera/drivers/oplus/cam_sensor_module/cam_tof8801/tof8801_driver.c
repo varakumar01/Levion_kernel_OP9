@@ -344,7 +344,7 @@ static ssize_t chip_enable_store(struct kobject *kobj,
         AMS_MUTEX_LOCK(&chip->lock)
         if(g_is_alread_runing){
                 AMS_MUTEX_UNLOCK(&chip->lock);
-                return 0;
+                return count;
         }
         g_is_alread_runing=1;
         AMS_MUTEX_UNLOCK(&chip->lock);
@@ -356,7 +356,7 @@ static ssize_t chip_enable_store(struct kobject *kobj,
         AMS_MUTEX_LOCK(&chip->lock)
         if(g_is_alread_runing == 0){
                 AMS_MUTEX_UNLOCK(&chip->lock);
-                return 0;
+                return count;
         }
         g_is_alread_runing=0;
         AMS_MUTEX_UNLOCK(&chip->lock);
